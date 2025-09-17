@@ -1,0 +1,226 @@
+## 🚀 Cursor Mega-Prompt — TurboSmash Lite (Modern UI)
+
+**Work in the currently open repo root. Create/modify files here (no subfolder). Show diffs and then apply them.**
+
+### Goal
+
+Build **TurboSmash Lite**, a minimal but polished web app for running a **3-round doubles badminton tournament**. Admin **manually enters players + seeds**, app **generates pairings** per round (with reasonable elimination → **Final Four**), admin **enters scores**, and the app **updates per-player Elo using points** (not just W/L). Show a **live leaderboard**. Persist to **localStorage** with **JSON import/export**. **No auth**, **no DB**, **no QR**.
+
+### Tech & Design
+
+* **Next.js (App Router) + TypeScript**
+* **Tailwind CSS** + **shadcn/ui** components
+* **Framer Motion** for subtle transitions (fade/slide, scale on hover)
+* **Lucide icons**
+* **Mobile-first**, responsive layout
+* **Design language**: neutral palette, ample white space, **rounded-2xl** corners, soft shadows, smooth focus states, keyboard accessible
+* **Fonts**: Inter or Manrope via next/font
+* **State**: React Context + hooks; persist to **localStorage**
+* **Deploy**: Vercel ready
+
+### If repo is empty, scaffold:
+
+1. Initialize Next.js (App Router, TS, Tailwind) using pnpm.
+2. Set up Tailwind (config + globals), install and init **shadcn/ui**, **framer-motion**, **lucide-react**.
+3. Add a clean base theme and CSS variables for radii, shadow, spacing.
+
+### Data Model (TypeScript)
+
+```ts
+export type Player = {
+  id: string;
+  name: string;
+  seed: number;
+  rating: number;             // starts at 1000
+  gamesPlayed: number;
+  eliminatedAtRound?: 1 | 2;
+  pointsFor: number;          // cumulative
+  pointsAgainst: number;      // cumulative
+};
+
+export type Match = {
+  id: string;
+  roundIndex: 1 | 2 | 3;
+  court: number;
+  a1: string; a2: string;     // player ids
+  b1: string; b2: string;     // player ids
+  scoreA?: number;            // points
+  scoreB?: number;            // points
+  status: 'scheduled' | 'completed';
+};
+
+export type Round = {
+  index: 1 | 2 | 3;
+  matches: Match[];
+  status: 'pending' | 'active' | 'closed';
+};
+
+export type EventState = {
+  players: Player[];
+  rounds: Round[];            // 3 entries once generated
+  currentRound: 1 | 2 | 3;
+  createdAt: string;
+};
+```
+
+### Rules
+
+* **Players**: N ≥ 8, **manual seeding** (1..N). Initial rating **1000**.
+* **Rounds** (all doubles):
+
+  * **R1**: to **21**, win by 2, **cap 30**
+  * **R2**: to **15**, win by 2, **cap 21**
+  * **R3 (Final)**: to **15**, win by 2, **cap 21**
+* **Elimination**:
+
+  * After **R1**, cut to an **even reasonable bucket** so R2 is competitive:
+
+    * N∈{8,9} → keep **6**
+    * N∈{10..13} → keep **8**
+    * N∈{14..17} → keep **10**
+    * N∈{18..21} → keep **12**
+    * Continue pattern ≈ N − ceil(N/4), **even**, min **6**
+  * After **R2**, keep **4** → **Final Four**
+  * **Tiebreakers** (applied when cutting): (1) current rating, (2) total **point differential** (for−against) in event, (3) head-to-head if any, (4) higher initial seed
+* **Odd counts**: if odd for a round, **bench** the player with **fewest games played**, tie-break by **longest idle**, then **lowest rating**
+
+### Rating Model — **Every point counts**
+
+* Team ratings: `R_A = avg(R_a1, R_a2)`, `R_B = avg(R_b1, R_b2)`
+* Expected **point share**: `E_A = 1 / (1 + 10^((R_B - R_A)/400))`
+* Actual **point share**: `S_A = pA / (pA + pB)` (guard zero)
+* Round-aware sensitivity: `K_eff = 24 * (pA + pB) / capRef`, where `capRef = 21` (R1) or `15` (R2/R3)
+* Difficulty adjustment (partner/opponent strength):
+
+  ```
+  avgYou = avg(R_a1, R_a2)
+  avgOpp = avg(R_b1, R_b2)
+  partner_adj = 1 + clamp((avgOpp - avgYou)/400, -0.2, +0.2)
+  K = K_eff * partner_adj
+  Δ_teamA = K * (S_A - E_A)
+  ```
+* Apply same **team delta** to both teammates; **clamp per-player |Δ| ≤ 40**
+* Update `rating`, `gamesPlayed`, `pointsFor/Against` on save
+
+### Matchmaking — **Info-gathering + Balance**
+
+* **Round 1**: split by seed into quartiles; prefer pairs mixing **Q1×Q3** and **Q2×Q4**. Pair pairs into matches minimizing `|sumRating(teamA) - sumRating(teamB)|`. Distribute seeds across courts.
+* **Rounds 2 & 3**: general objective — (1) balance team sums, (2) **avoid repeat partners** if feasible, (3) minimize repeated opponents, (4) fairness by games/idle time.
+* **Pair cost**:
+
+  ```
+  + LARGE if partners in last 2 rounds
+  + small * recentOpponentCount (window 2)
+  + 0.5 * |ratingA - ratingB|
+  + 0.2 * |gamesPlayedA - gamesPlayedB|
+  ```
+* Use **min-cost matching** (or greedy approx) to form pairs; then pair pairs into matches minimizing team rating gap & opponent repeats.
+* If odd: apply bench rule above.
+
+### App Structure (files)
+
+* `app/layout.tsx` — fonts, theme, container, top-nav
+* `app/page.tsx` — Tabs: **Players**, **Rounds**, **Leaderboard**
+* `lib/rating.ts` — expectedShare, actualShare, kEff, difficultyAdj, applyEloForMatch (pure, tested)
+* `lib/matchmaking.ts` — R1/R2/R3 generators, bench rule, helpers (pure, tested)
+* `lib/elimination.ts` — cut sizes, tiebreakers
+* `lib/state.ts` — store/load to **localStorage**, import/export JSON
+* `components/ui/*` — shadcn
+* `components/PlayersTable.tsx`
+* `components/RoundsEditor.tsx`
+* `components/Leaderboard.tsx`
+* `components/MatchCard.tsx` (animated)
+* `components/TopBar.tsx`, `components/EmptyState.tsx`
+* `public/og.png` (basic social card)
+* `README.md` — run & deploy
+
+### UI/UX Requirements (modern & sleek)
+
+* **Top bar** with app title “TurboSmash” and subtle motion on mount
+* **Card-based** layout, **rounded-2xl**, consistent `shadow-sm`/`shadow-md`
+* **Large touch targets**, clean form inputs, inline validation
+* **Subtle Framer Motion**:
+
+  * Fade/slide in tab content
+  * Scale on hover for match cards’ CTAs
+  * Animate leaderboard row highlight on rating change
+* **Keyboard nav & a11y**: proper labels, focus rings, `aria-*` where appropriate
+* **Color system**: neutral slate background, white cards, brand accent for primary (e.g., indigo)
+* **Empty states** with icon + helpful text
+* **Toasts** for actions (score saved, round closed, JSON exported/imported)
+* **Loading/disabled** states, no jank
+
+### Pages / Tabs
+
+**Players tab**
+
+* Table: `Seed | Name | Rating | Pts+ | Pts- | Eliminated? | Actions`
+* Controls: **Add player** (name+seed; enforce unique seed), **Remove**, **Sort by seed**
+* Buttons: **Generate Round 1**, **Export JSON**, **Import JSON**, **Reset**, **Demo 12 players**
+* Validation: min **8** players to generate R1; seeds must be 1..N unique
+
+**Rounds tab**
+
+* Sub-tabs: **Round 1**, **Round 2**, **Round 3**
+* Each round shows **Match cards**:
+
+  * Header: `Court #` + tiny seed badges beneath each name
+  * Body: `A1 & A2` **vs** `B1 & B2`
+  * Inputs: `scoreA` / `scoreB`, buttons **Save** / **Update**
+  * On Save: apply Elo (point-based), update ratings and stats; mark `completed`
+* Round actions:
+
+  * R1: **Close Round 1** → run elimination cut → **Generate Round 2**
+  * R2: **Close Round 2** → cut to **Final Four** → **Generate Final**
+  * R3: **Close Event**
+* If repeats couldn’t be avoided, show a small **“Compromise”** badge on affected cards
+
+**Leaderboard tab**
+
+* Live sorted by **rating** desc
+* Columns: `Rank | Name | Seed | Rating | W-L | Points ± | Notes`
+
+  * W-L derived from match scores
+  * Notes: e.g., “Benched R2”, “Repeat partner (unavoidable)”
+* **Animate** rating deltas (brief highlight)
+
+**Import/Export**
+
+* **Export**: download a single JSON blob with `EventState`
+* **Import**: replace state (confirm dialog)
+* **LocalStorage**: save on each mutation; load on app start
+
+### Implement
+
+1. **Scaffold project** if needed (Next.js + Tailwind + shadcn/ui + framer-motion + lucide). Add Inter/Manrope font.
+2. Build **UI shell** (TopBar, Tabs) with sleek styling.
+3. Implement **state context** with actions:
+
+   * `addPlayer(name, seed)`, `removePlayer(id)`, `updateSeed(id, seed)`
+   * `generateRound1()`, `closeRound1()`
+   * `generateRound2()`, `closeRound2()`
+   * `generateRound3()`, `closeEvent()`
+   * `submitScore(matchId, scoreA, scoreB)`
+   * `exportJSON()`, `importJSON(blob)`, `reset()`, `demo12()`
+4. Implement **rating.ts** (pure + tests).
+5. Implement **matchmaking.ts**:
+
+   * R1 quartile mixing Q1×Q3 and Q2×Q4, pair pairs by minimal team-sum gap
+   * R2/R3: min-cost pairing with penalties (as specified), then pair pairs
+   * Bench rule & helpers
+6. Implement **elimination.ts** with cut sizes + tiebreakers.
+7. Wire **RoundsEditor** with animated **MatchCard** and toasts.
+8. Build **Leaderboard** with animated rating delta highlights.
+9. Add **localStorage** persistence + **import/export**.
+10. Provide **README.md** with run & Vercel deploy steps.
+
+### Acceptance criteria
+
+* I can **enter players** with seeds (or click **Demo 12**), click **Generate Round 1**, see pairings and matches.
+* Entering scores **updates Elo** and stats immediately; **Leaderboard** reflects changes in real time.
+* **Close R1**: the app cuts to the correct bucket by rule and generates R2.
+* **Close R2**: the app cuts to **Final Four** and generates R3.
+* **Close Event**: Leaderboard shows final standings; I can **Export JSON**.
+* The UI looks **modern and sleek** (as described), responsive, and accessible.
+
+**Proceed now. If the repo is empty, scaffold first; otherwise, add/modify files in place. Show a plan, diffs, then apply.**
