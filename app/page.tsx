@@ -12,8 +12,8 @@ export default function Home() {
       <TopBar />
       <main className="mx-auto max-w-6xl p-4">
         <Tabs defaultValue="players">
-          <TabsList>
-            <TabsTrigger value="players">Players</TabsTrigger>
+          <TabsList className="flex mx-auto">
+            <TabsTrigger value="players">Tournament setup</TabsTrigger>
             <TabsTrigger value="rounds">Rounds</TabsTrigger>
           </TabsList>
           <TabsContent value="players" className="mt-6">

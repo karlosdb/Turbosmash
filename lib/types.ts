@@ -5,6 +5,7 @@ export type Player = {
   rating: number; // starts at 1000
   gamesPlayed: number;
   eliminatedAtRound?: 1 | 2;
+  lockedRank?: number; // fixed leaderboard placement once eliminated
   pointsFor: number;
   pointsAgainst: number;
   lastPlayedAt?: number; // timestamp used to break ties for benching
@@ -14,6 +15,8 @@ export type Match = {
   id: string;
   roundIndex: 1 | 2 | 3;
   court: number;
+  /** Optional mini-round batch index (1-based) for Round 1 batching */
+  miniRound?: number;
   a1: string; // player id
   a2: string; // player id
   b1: string; // player id
@@ -28,6 +31,12 @@ export type Round = {
   index: 1 | 2 | 3;
   matches: Match[];
   status: "pending" | "active" | "closed";
+  /** Round 1 only: current mini-round index (1-based). 0 means none generated yet. */
+  currentMiniRound?: number;
+  /** Round 1 only: number of matches to schedule per mini-round */
+  miniRoundSize?: number;
+  /** Round 1 only: target games per player (default 3) */
+  targetGames?: number;
 };
 
 export type EventState = {
@@ -35,6 +44,8 @@ export type EventState = {
   rounds: Round[]; // 3 entries once generated
   currentRound: 1 | 2 | 3;
   createdAt: string;
+  /** Signature of players+seeds when Round 1 was last generated */
+  r1Signature?: string;
 };
 
 export type Id = string;

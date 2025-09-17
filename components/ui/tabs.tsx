@@ -86,4 +86,10 @@ export function TabsContent({
   return <div className={twMerge("mt-6", className)} {...props} />;
 }
 
+export function useTabs() {
+  const ctx = React.useContext(TabsContext);
+  if (!ctx) throw new Error("useTabs must be used within Tabs");
+  return ctx;
+}
+
 

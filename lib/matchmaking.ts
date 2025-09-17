@@ -279,4 +279,142 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+// Mini-round generation for Round 1 batching
+export function generateMiniRound(
+  players: Player[],
+  priorRounds: Round[],
+  roundIndex: 1,
+  miniSize: number,
+  currentMiniRoundIndex: number,
+  existingMatchesInRound: Match[],
+  courtOffset: number
+): { matches: Match[]; compromises: string[] } {
+  // Compute per-player games already played in this round (completed)
+  const r1Games: Record<string, number> = {};
+  for (const m of existingMatchesInRound) {
+    if (m.roundIndex !== 1) continue;
+    if (m.status !== "completed") continue;
+    r1Games[m.a1] = (r1Games[m.a1] || 0) + 1;
+    r1Games[m.a2] = (r1Games[m.a2] || 0) + 1;
+    r1Games[m.b1] = (r1Games[m.b1] || 0) + 1;
+    r1Games[m.b2] = (r1Games[m.b2] || 0) + 1;
+  }
+
+  // Select up to miniSize*4 players to play this mini-round, preferring those with fewer R1 games,
+  // longer idle (older timestamp), and lower rating
+  const capacity = Math.max(0, miniSize) * 4;
+  const sortedForPlay = [...players].sort((a, b) => {
+    const ga = r1Games[a.id] || 0;
+    const gb = r1Games[b.id] || 0;
+    if (ga !== gb) return ga - gb; // fewer R1 games first
+    const ia = a.lastPlayedAt ?? 0;
+    const ib = b.lastPlayedAt ?? 0;
+    if (ia !== ib) return ia - ib; // longer idle first (older timestamp)
+    if (a.rating !== b.rating) return a.rating - b.rating; // lower rating first
+    return a.seed - b.seed; // better seed first
+  });
+
+  // Trim to a multiple of 4 and up to capacity
+  let active = sortedForPlay.slice(0, capacity);
+  const trimToMultipleOf4 = (n: number) => n - (n % 4);
+  active = active.slice(0, trimToMultipleOf4(active.length));
+
+  // If capacity is zero or not enough players, return empty
+  if (active.length < 4) return { matches: [], compromises: [] };
+
+  // Build partners/opponents set from recent rounds and this round so far
+  const recent = recentPartnersAndOpponents(active, [...priorRounds, { index: 1, matches: existingMatchesInRound, status: "active" } as Round], 2);
+  const partners = recent.partners;
+  const opponents = recent.opponents;
+
+  // Pair cost emphasizing avoiding repeat partners, then balance ratings
+  const pairCost = (a: Player, b: Player) => {
+    const partnerRepeat = partners[a.id]?.has(b.id) ? 100 : 0;
+    const oppRepeat = (opponents[a.id]?.has(b.id) ? 1 : 0) * 5;
+    const ratingBalance = 0.5 * Math.abs(a.rating - b.rating);
+    return partnerRepeat + oppRepeat + ratingBalance;
+  };
+
+  const pairs = pairIndicesGreedy(active, pairCost);
+  const pairSums = pairs.map(([p1, p2]) => ({ players: [p1, p2] as [Player, Player], ratingSum: p1.rating + p2.rating }));
+  const used: boolean[] = pairSums.map(() => false);
+  const matches: Match[] = [];
+  const compromises: string[] = [];
+
+  for (let i = 0; i < pairSums.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+    let bestJ = -1;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (let j = i + 1; j < pairSums.length; j++) {
+      if (used[j]) continue;
+      const [a1, a2] = pairSums[i].players;
+      const [b1, b2] = pairSums[j].players;
+      const gap = Math.abs(pairSums[i].ratingSum - pairSums[j].ratingSum);
+      const opponentRepeats =
+        Number(opponents[a1.id]?.has(b1.id)) +
+        Number(opponents[a1.id]?.has(b2.id)) +
+        Number(opponents[a2.id]?.has(b1.id)) +
+        Number(opponents[a2.id]?.has(b2.id));
+      const score = gap + opponentRepeats * 5;
+      if (score < bestScore) {
+        bestScore = score;
+        bestJ = j;
+      }
+    }
+    if (bestJ === -1) continue;
+    used[bestJ] = true;
+    const [pa1, pa2] = pairSums[i].players;
+    const [pb1, pb2] = pairSums[bestJ].players;
+    const notes: string[] = [];
+    if (partners[pa1.id]?.has(pa2.id) || partners[pb1.id]?.has(pb2.id)) notes.push("Repeat partner (unavoidable)");
+    const repeatedOpp =
+      Number(opponents[pa1.id]?.has(pb1.id)) +
+      Number(opponents[pa1.id]?.has(pb2.id)) +
+      Number(opponents[pa2.id]?.has(pb1.id)) +
+      Number(opponents[pa2.id]?.has(pb2.id));
+    if (repeatedOpp > 0) notes.push("Repeat opponents (minimized)");
+    matches.push({
+      id: uid("m1"),
+      roundIndex,
+      court: courtOffset + matches.length + 1,
+      miniRound: currentMiniRoundIndex + 1,
+      a1: pa1.id,
+      a2: pa2.id,
+      b1: pb1.id,
+      b2: pb2.id,
+      status: "scheduled",
+      notes,
+    });
+    compromises.push(...notes);
+    if (matches.length >= miniSize) break; // only up to miniSize matches
+  }
+
+  // Fallback: if no matches created (should be rare), pair sequentially
+  if (matches.length === 0 && pairSums.length >= 2) {
+    const indices = pairSums.map((_, i) => i);
+    for (let k = 0; k + 1 < indices.length && matches.length < miniSize; k += 2) {
+      const [pa1, pa2] = pairSums[indices[k]].players;
+      const [pb1, pb2] = pairSums[indices[k + 1]].players;
+      const notes: string[] = [];
+      if (partners[pa1.id]?.has(pa2.id) || partners[pb1.id]?.has(pb2.id)) notes.push("Repeat partner (unavoidable)");
+      matches.push({
+        id: uid("m1"),
+        roundIndex,
+        court: courtOffset + matches.length + 1,
+        miniRound: currentMiniRoundIndex + 1,
+        a1: pa1.id,
+        a2: pa2.id,
+        b1: pb1.id,
+        b2: pb2.id,
+        status: "scheduled",
+        notes,
+      });
+      compromises.push(...notes);
+    }
+  }
+
+  return { matches, compromises };
+}
+
 

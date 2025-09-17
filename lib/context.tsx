@@ -1,17 +1,19 @@
 "use client";
 
 import React from "react";
-import { EventState, Player, createEmptyEvent } from "./types";
+import { EventState, Player, Round, createEmptyEvent } from "./types";
 import { loadState, saveState } from "./state";
 import { applyEloForMatch } from "./rating";
-import { generateRound1, generateRoundGeneric } from "./matchmaking";
-import { cutAfterR1, cutAfterR2ToFinalFour } from "./elimination";
+import { generateMiniRound, generateRound1, generateRoundGeneric } from "./matchmaking";
+import { cutAfterR1, cutAfterR2ToFinalFour, rankPlayers } from "./elimination";
 
 type EventActions = {
   addPlayer: (name: string, seed: number) => void;
   removePlayer: (id: string) => void;
   updateSeed: (id: string, seed: number) => void;
   generateRound1: () => void;
+  setRound1MiniSize: (size: number) => void;
+  generateNextMiniRound: () => void;
   closeRound1: () => void;
   generateRound2: () => void;
   closeRound2: () => void;
@@ -48,6 +50,31 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (hasHydrated) saveState(state);
   }, [state, hasHydrated]);
+
+  // Safeguard: if Round 1 exists with no matches (e.g., from older saved state),
+  // auto-generate the first mini-round on hydration so the UI isn't empty.
+  React.useEffect(() => {
+    if (!hasHydrated) return;
+    setState((s) => {
+      const rounds = s.rounds.map((r) => ({ ...r, matches: r.matches?.map((m) => ({ ...m })) ?? [] }));
+      const r1 = rounds.find((r) => r.index === 1);
+      if (!r1) return s;
+      if ((r1.matches?.length ?? 0) > 0) return s;
+      const miniSize = r1.miniRoundSize ?? Math.max(1, Math.floor(s.players.length / 4));
+      const { matches } = generateMiniRound(
+        s.players,
+        rounds.filter((r) => r.index !== 1),
+        1,
+        miniSize,
+        r1.currentMiniRound ?? 0,
+        r1.matches ?? [],
+        0
+      );
+      if (matches.length === 0) return s;
+      const newRounds = rounds.map((r) => (r.index === 1 ? { ...r, matches, currentMiniRound: 1 } : r));
+      return { ...s, rounds: newRounds };
+    });
+  }, [hasHydrated]);
 
   const addPlayer = (name: string, seed: number) => {
     setState((s) => {
@@ -114,8 +141,72 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   const generateRound1Action = () => {
     setState((s) => {
       if (s.players.length < 8) return s;
-      const { round } = generateRound1(s.players);
-      return { ...s, rounds: [round], currentRound: 1 };
+      // Initialize empty Round 1 with mini-round config (defaults)
+      const numCourts = Math.floor(s.players.length / 4);
+      let r1: Round = {
+        index: 1,
+        matches: [],
+        status: "active",
+        currentMiniRound: 0,
+        miniRoundSize: numCourts,
+        targetGames: 3,
+      };
+      // Auto-generate first mini-round
+      const { matches } = generateMiniRound(
+        s.players,
+        [],
+        1,
+        r1.miniRoundSize!,
+        0,
+        r1.matches,
+        0
+      );
+      if (matches.length > 0) {
+        r1 = { ...r1, matches, currentMiniRound: 1 };
+      }
+      // compute signature of current players+seeds
+      const r1Signature = s.players
+        .slice()
+        .sort((a, b) => a.seed - b.seed)
+        .map((p) => `${p.seed}:${p.name}`)
+        .join("|");
+      return { ...s, rounds: [r1], currentRound: 1, r1Signature };
+    });
+  };
+
+  const setRound1MiniSize = (size: number) => {
+    setState((s) => {
+      const rounds = s.rounds.map((r) => ({ ...r }));
+      const r1 = rounds.find((r) => r.index === 1);
+      if (!r1) return s;
+      r1.miniRoundSize = Math.max(1, Math.floor(size));
+      return { ...s, rounds };
+    });
+  };
+
+  const generateNextMiniRound = () => {
+    setState((s) => {
+      const rounds = s.rounds.map((r) => ({ ...r, matches: r.matches.map((m) => ({ ...m })) }));
+      const r1 = rounds.find((r) => r.index === 1);
+      if (!r1) return s;
+      const miniSize = r1.miniRoundSize ?? Math.floor(s.players.length / 4);
+      const currentIdx = r1.currentMiniRound ?? 0;
+
+      // Determine court offset within this round
+      const courtOffset = r1.matches.length;
+      const { matches } = generateMiniRound(
+        s.players,
+        rounds.filter((r) => r.index !== 1),
+        1,
+        miniSize,
+        currentIdx,
+        r1.matches,
+        courtOffset
+      );
+      if (matches.length === 0) return s;
+      r1.matches = [...r1.matches, ...matches];
+      r1.currentMiniRound = currentIdx + 1;
+      return { ...s, rounds };
     });
   };
 
@@ -125,10 +216,17 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       if (!r1) return s;
       r1.status = "closed";
       // elimination cut
-      const { keepIds } = cutAfterR1(s.players, s.rounds);
-      const kept = s.players.filter((p) => keepIds.includes(p.id));
+      const { keepIds, eliminatedIds } = cutAfterR1(s.players, s.rounds);
+      // Lock ranks for eliminated based on current ranking
+      const ranked = rankPlayers(s.players, s.rounds);
+      const rankMap: Record<string, number> = {};
+      ranked.forEach((p, idx) => (rankMap[p.id] = idx + 1));
+      const players = s.players.map((p) =>
+        eliminatedIds.includes(p.id) ? { ...p, eliminatedAtRound: 1 as const, lockedRank: rankMap[p.id] } : p
+      );
+      const kept = players.filter((p) => keepIds.includes(p.id));
       const { round } = generateRoundGeneric(kept, s.rounds, 2);
-      return { ...s, players: kept, rounds: [...s.rounds, round], currentRound: 2 };
+      return { ...s, players, rounds: [...s.rounds, round], currentRound: 2 };
     });
   };
 
@@ -137,10 +235,16 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       const r2 = s.rounds.find((r) => r.index === 2);
       if (!r2) return s;
       r2.status = "closed";
-      const { keepIds } = cutAfterR2ToFinalFour(s.players, s.rounds);
-      const kept = s.players.filter((p) => keepIds.includes(p.id));
+      const { keepIds, eliminatedIds } = cutAfterR2ToFinalFour(s.players, s.rounds);
+      const ranked = rankPlayers(s.players, s.rounds);
+      const rankMap: Record<string, number> = {};
+      ranked.forEach((p, idx) => (rankMap[p.id] = idx + 1));
+      const players = s.players.map((p) =>
+        eliminatedIds.includes(p.id) ? { ...p, eliminatedAtRound: 2 as const, lockedRank: rankMap[p.id] } : p
+      );
+      const kept = players.filter((p) => keepIds.includes(p.id));
       const { round } = generateRoundGeneric(kept, s.rounds, 3);
-      return { ...s, players: kept, rounds: [...s.rounds, round], currentRound: 3 };
+      return { ...s, players, rounds: [...s.rounds, round], currentRound: 3 };
     });
   };
 
@@ -186,6 +290,8 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     removePlayer,
     updateSeed,
     generateRound1: generateRound1Action,
+    setRound1MiniSize,
+    generateNextMiniRound,
     closeRound1,
     generateRound2: () => {},
     closeRound2,

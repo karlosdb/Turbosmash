@@ -2,14 +2,17 @@
 
 import { useState } from "react";
 import { useEvent } from "@/lib/context";
+import { useMemo } from "react";
 import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useTabs } from "@/components/ui/tabs";
 
 export default function PlayersTable() {
-  const { players, addPlayer, removePlayer, updateSeed, generateRound1, exportJSON, importJSON, reset, demo12 } = useEvent();
+  const { players, addPlayer, removePlayer, updateSeed, generateRound1, exportJSON, importJSON, reset, demo12, rounds, r1Signature } = useEvent();
   const [name, setName] = useState("");
   const [seed, setSeed] = useState<number>(players.length + 1);
+  const tabs = useTabs();
 
   const onAdd = () => {
     if (!name.trim()) return;
@@ -18,13 +21,37 @@ export default function PlayersTable() {
     setSeed((s) => s + 1);
   };
 
+  // Compute current signature of players+seeds to gate the Start button
+  const currentSignature = useMemo(() => (
+    players
+      .slice()
+      .sort((a, b) => a.seed - b.seed)
+      .map((p) => `${p.seed}:${p.name}`)
+      .join("|")
+  ), [players]);
+
+  const canStart = players.length >= 8 && (rounds.length === 0 || r1Signature !== currentSignature);
+
+  const onStart = () => {
+    if (!canStart) return;
+    generateRound1();
+    // jump to rounds tab for a smoother flow
+    tabs.setValue("rounds");
+  };
+
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <CardTitle>Players</CardTitle>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => demo12()}>Demo 12</Button>
-          <Button onClick={() => generateRound1()} disabled={players.length < 8}>Generate Round 1</Button>
+          <Button
+            onClick={onStart}
+            disabled={!canStart}
+            className="shadow-sm hover:shadow-md active:scale-[0.99]"
+          >
+            Start tournament
+          </Button>
           <Button variant="outline" onClick={() => {
             const blob = new Blob([exportJSON()], { type: "application/json" });
             const url = URL.createObjectURL(blob);

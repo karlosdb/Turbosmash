@@ -75,4 +75,9 @@ function rankForCut(players: Player[], rounds: EventState["rounds"]): Player[] {
   });
 }
 
+// Export ranking for use in UI/state decisions (e.g., locking eliminated placements)
+export function rankPlayers(players: Player[], rounds: EventState["rounds"]): Player[] {
+  return rankForCut(players, rounds);
+}
+
 

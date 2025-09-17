@@ -5,7 +5,7 @@ import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useEvent } from "@/lib/context";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export default function MatchCard({ matchId }: { matchId: string }) {
   const { rounds, players, submitScore } = useEvent();
@@ -17,18 +17,77 @@ export default function MatchCard({ matchId }: { matchId: string }) {
   const [scoreB, setScoreB] = useState<string>(
     match?.scoreB !== undefined ? String(match.scoreB) : ""
   );
-  if (!match) return null;
+  const [winner, setWinner] = useState<"A" | "B" | null>(() => {
+    if (match?.scoreA !== undefined && match?.scoreB !== undefined) {
+      if (match.scoreA > match.scoreB) return "A";
+      if (match.scoreB > match.scoreA) return "B";
+    }
+    return null;
+  });
+  const inputARef = useRef<HTMLInputElement>(null);
+  const inputBRef = useRef<HTMLInputElement>(null);
+  // Guarded access below; if match is missing, we render null after hooks
+  const a1 = match ? byId[match.a1] : undefined;
+  const a2 = match ? byId[match.a2] : undefined;
+  const b1 = match ? byId[match.b1] : undefined;
+  const b2 = match ? byId[match.b2] : undefined;
 
-  const a1 = byId[match.a1];
-  const a2 = byId[match.a2];
-  const b1 = byId[match.b1];
-  const b2 = byId[match.b2];
+  const roundTarget = match && match.roundIndex === 1 ? 21 : 15;
+
+  // Keep local state in sync if an already-completed match is opened/updated
+  useEffect(() => {
+    if (!match) return;
+    if (match.scoreA !== undefined) setScoreA(String(match.scoreA));
+    if (match.scoreB !== undefined) setScoreB(String(match.scoreB));
+    if (match.scoreA !== undefined && match.scoreB !== undefined) {
+      if (match.scoreA > match.scoreB) setWinner("A");
+      else if (match.scoreB > match.scoreA) setWinner("B");
+      else setWinner(null);
+    }
+  }, [match]);
+
+  const selectWinner = (side: "A" | "B") => {
+    setWinner(side);
+    if (side === "A") {
+      setScoreA(String(roundTarget));
+      // Focus losing side input
+      setTimeout(() => inputBRef.current?.focus(), 0);
+    } else {
+      setScoreB(String(roundTarget));
+      setTimeout(() => inputARef.current?.focus(), 0);
+    }
+  };
+
+  const getIntendedScores = () => {
+    let a = parseInt(scoreA || "0", 10);
+    let b = parseInt(scoreB || "0", 10);
+    if (winner === "A") a = roundTarget;
+    else if (winner === "B") b = roundTarget;
+    return [a, b] as const;
+  };
 
   const onSave = () => {
-    const a = parseInt(scoreA || "0", 10);
-    const b = parseInt(scoreB || "0", 10);
-    submitScore(match.id, a, b);
+    const [a, b] = getIntendedScores();
+    if (match) submitScore(match.id, a, b);
   };
+
+  const canSave =
+    winner !== null && ((winner === "A" && scoreB !== "") || (winner === "B" && scoreA !== ""));
+
+  // Validation: losing score must be between 0 and roundTarget - 1
+  const maxLosing = roundTarget - 1;
+  const losingScoreStr = winner === "A" ? scoreB : winner === "B" ? scoreA : "";
+  const losingScoreNum = parseInt(losingScoreStr, 10);
+  const isLosingInvalid =
+    losingScoreStr !== "" && (Number.isNaN(losingScoreNum) || losingScoreNum < 0 || losingScoreNum > maxLosing);
+
+  const [intendedA, intendedB] = getIntendedScores();
+  const buttonEnabled =
+    !isLosingInvalid && (match.status === "completed"
+      ? canSave && (intendedA !== match.scoreA || intendedB !== match.scoreB)
+      : canSave);
+
+  if (!match) return null;
 
   return (
     <motion.div
@@ -56,22 +115,81 @@ export default function MatchCard({ matchId }: { matchId: string }) {
         </div>
       </div>
       <div className="mt-4 flex items-center gap-2">
-        <Input
-          type="number"
-          value={scoreA}
-          onChange={(e) => setScoreA(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          className="w-24"
-        />
+        {/* Left side (Team A) */}
+        {winner === "B" ? (
+          <Input
+            ref={inputARef}
+            type="number"
+            value={scoreA}
+            onChange={(e) => setScoreA(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && buttonEnabled) onSave();
+            }}
+            min={0}
+            max={maxLosing}
+            aria-invalid={isLosingInvalid}
+            className={`w-24 ${isLosingInvalid ? "border-rose-400 focus-visible:ring-rose-500 bg-rose-50" : ""}`}
+          />
+        ) : winner === "A" ? (
+          <button
+            type="button"
+            onClick={() => setWinner(null)}
+            title="Click to change winner"
+            className="w-24 h-10 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-semibold flex items-center justify-center hover:bg-emerald-100"
+          >
+            {scoreA || String(roundTarget)}
+          </button>
+        ) : (
+          <Button
+            variant="secondary"
+            className="w-24 bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700"
+            onClick={() => selectWinner("A")}
+          >
+            Winner
+          </Button>
+        )}
+
         <span className="text-slate-400">:</span>
-        <Input
-          type="number"
-          value={scoreB}
-          onChange={(e) => setScoreB(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          className="w-24"
-        />
-        <Button onClick={onSave} className="ml-auto">{match.status === "completed" ? "Update" : "Save"}</Button>
+
+        {/* Right side (Team B) */}
+        {winner === "A" ? (
+          <Input
+            ref={inputBRef}
+            type="number"
+            value={scoreB}
+            onChange={(e) => setScoreB(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && buttonEnabled) onSave();
+            }}
+            min={0}
+            max={maxLosing}
+            aria-invalid={isLosingInvalid}
+            className={`w-24 ${isLosingInvalid ? "border-rose-400 focus-visible:ring-rose-500 bg-rose-50" : ""}`}
+          />
+        ) : winner === "B" ? (
+          <button
+            type="button"
+            onClick={() => setWinner(null)}
+            title="Click to change winner"
+            className="w-24 h-10 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-semibold flex items-center justify-center hover:bg-emerald-100"
+          >
+            {scoreB || String(roundTarget)}
+          </button>
+        ) : (
+          <Button
+            variant="secondary"
+            className="w-24 bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700"
+            onClick={() => selectWinner("B")}
+          >
+            Winner
+          </Button>
+        )}
+
+        <Button onClick={onSave} className="ml-auto" disabled={!buttonEnabled}>
+          {match.status === "completed" ? "Update" : "Save"}
+        </Button>
       </div>
     </motion.div>
   );
