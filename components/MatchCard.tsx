@@ -136,7 +136,7 @@ export default function MatchCard({ matchId }: { matchId: string }) {
             type="button"
             onClick={() => setWinner(null)}
             title="Click to change winner"
-            className="w-24 h-10 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-semibold flex items-center justify-center hover:bg-emerald-100"
+            className="w-24 h-10 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-semibold flex items-center justify-center hover:bg-emerald-100 cursor-pointer"
           >
             {scoreA || String(roundTarget)}
           </button>
@@ -173,7 +173,7 @@ export default function MatchCard({ matchId }: { matchId: string }) {
             type="button"
             onClick={() => setWinner(null)}
             title="Click to change winner"
-            className="w-24 h-10 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-semibold flex items-center justify-center hover:bg-emerald-100"
+            className="w-24 h-10 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm font-semibold flex items-center justify-center hover:bg-emerald-100 cursor-pointer"
           >
             {scoreB || String(roundTarget)}
           </button>
@@ -194,5 +194,6 @@ export default function MatchCard({ matchId }: { matchId: string }) {
     </motion.div>
   );
 }
+
 
 

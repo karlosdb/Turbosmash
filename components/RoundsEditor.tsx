@@ -94,13 +94,13 @@ export default function RoundsEditor() {
                         const scheduledThisMini = r1.matches.filter(
                           (m) => m.roundIndex === 1 && (m.miniRound ?? mini) === mini && m.status !== "completed"
                         );
-                        (scheduledThisMini.length > 0 ? scheduledThisMini : r1.matches.filter((m) => m.status !== "completed")).forEach((m) => {
+                        scheduledThisMini.forEach((m) => {
                           const [a, b] = randomScoreForTarget(target);
                           submitScore(m.id, a, b);
                         });
                       }}
                     >
-                      Randomize scores for Round 1
+                      Randomize scores (current mini-round)
                     </Button>
                   </div>
                 )}

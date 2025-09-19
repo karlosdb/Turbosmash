@@ -11,6 +11,7 @@ type EventActions = {
   addPlayer: (name: string, seed: number) => void;
   removePlayer: (id: string) => void;
   updateSeed: (id: string, seed: number) => void;
+  reorderPlayers: (orderedIds: string[]) => void;
   generateRound1: () => void;
   setRound1MiniSize: (size: number) => void;
   generateNextMiniRound: () => void;
@@ -102,6 +103,16 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     setState((s) => {
       if (s.players.some((p) => p.seed === seed && p.id !== id)) return s;
       const players = s.players.map((p) => (p.id === id ? { ...p, seed } : p)).sort((a, b) => a.seed - b.seed);
+      return { ...s, players };
+    });
+  };
+
+  const reorderPlayers = (orderedIds: string[]) => {
+    setState((s) => {
+      if (orderedIds.length !== s.players.length) return s;
+      const map = new Map(s.players.map((p) => [p.id, p]));
+      if (orderedIds.some((id) => !map.has(id))) return s;
+      const players = orderedIds.map((id, idx) => ({ ...map.get(id)!, seed: idx + 1 }));
       return { ...s, players };
     });
   };
@@ -289,6 +300,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     addPlayer,
     removePlayer,
     updateSeed,
+    reorderPlayers,
     generateRound1: generateRound1Action,
     setRound1MiniSize,
     generateNextMiniRound,
@@ -312,5 +324,9 @@ export function useEvent() {
   if (!ctx) throw new Error("useEvent must be used within EventProvider");
   return ctx;
 }
+
+
+
+
 
 

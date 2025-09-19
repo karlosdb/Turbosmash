@@ -97,16 +97,19 @@ export default function Leaderboard() {
                 const paTotal = p.pointsAgainst;
                 const winsTotal = s ? s.wins[1] + s.wins[2] + s.wins[3] : 0;
                 const lossesTotal = s ? s.losses[1] + s.losses[2] + s.losses[3] : 0;
+                const rowBgClass = !p.eliminatedAtRound && delta !== 0 ? (delta > 0 ? "bg-emerald-50" : "bg-rose-50") : "";
                 return (
-                  <tr key={p.id} className={`border-t border-slate-200`}>
+                  <tr key={p.id} className={`border-t border-slate-200 ${rowBgClass}`}>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums`}>{p.lockedRank ?? i + 1}</td>
                     <td className={`py-1 px-1 ${greyClass} text-left whitespace-nowrap`} style={{ width: `${nameColCh}ch` }} title={p.name}>{p.name}</td>
                     <td className={`py-1 px-1 ${greyClass} hidden sm:table-cell text-center tabular-nums`}>{p.seed}</td>
-                    <td className={`py-1 px-1 ${greyClass} hidden md:table-cell tabular-nums text-center`}>
-                      {p.rating}
-                      {!p.eliminatedAtRound && delta !== 0 && (
-                        <span className={`ml-2 text-xs ${delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>{delta > 0 ? `+${Math.round(delta)}` : Math.round(delta)}</span>
-                      )}
+                    <td className={`py-1 px-1 ${greyClass} hidden md:table-cell tabular-nums`}>
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-center">
+                        <span className="col-start-2 justify-self-center text-center">{p.rating}</span>
+                        {!p.eliminatedAtRound && delta !== 0 && (
+                          <span className={`col-start-3 justify-self-end text-xs ${delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>{delta > 0 ? `+${Math.round(delta)}` : Math.round(delta)}</span>
+                        )}
+                      </div>
                     </td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtPointsTooltip(p.id, "pf")}>{pfTotal}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtPointsTooltip(p.id, "pa")}>{paTotal}</td>

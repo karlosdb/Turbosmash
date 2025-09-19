@@ -1,42 +1,94 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useEvent } from "@/lib/context";
-import { useMemo } from "react";
 import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTabs } from "@/components/ui/tabs";
 
 export default function PlayersTable() {
-  const { players, addPlayer, removePlayer, updateSeed, generateRound1, exportJSON, importJSON, reset, demo12, rounds, r1Signature } = useEvent();
+  const {
+    players,
+    addPlayer,
+    removePlayer,
+    reorderPlayers,
+    generateRound1,
+    exportJSON,
+    importJSON,
+    reset,
+    demo12,
+    rounds,
+    r1Signature,
+  } = useEvent();
   const [name, setName] = useState("");
-  const [seed, setSeed] = useState<number>(players.length + 1);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
   const tabs = useTabs();
 
-  const onAdd = () => {
-    if (!name.trim()) return;
-    addPlayer(name.trim(), seed);
-    setName("");
-    setSeed((s) => s + 1);
-  };
+  const sortedPlayers = useMemo(
+    () => players.slice().sort((a, b) => a.seed - b.seed),
+    [players]
+  );
 
-  // Compute current signature of players+seeds to gate the Start button
-  const currentSignature = useMemo(() => (
-    players
-      .slice()
-      .sort((a, b) => a.seed - b.seed)
-      .map((p) => `${p.seed}:${p.name}`)
-      .join("|")
-  ), [players]);
+  const currentSignature = useMemo(
+    () => sortedPlayers.map((p) => `${p.seed}:${p.name}`).join("|"),
+    [sortedPlayers]
+  );
 
   const canStart = players.length >= 8 && (rounds.length === 0 || r1Signature !== currentSignature);
 
   const onStart = () => {
     if (!canStart) return;
     generateRound1();
-    // jump to rounds tab for a smoother flow
     tabs.setValue("rounds");
+  };
+
+  const onAdd = () => {
+    if (!name.trim()) return;
+    const nextSeed = players.length + 1;
+    addPlayer(name.trim(), nextSeed);
+    setName("");
+  };
+
+  const handleDrop = (targetId: string) => {
+    if (!draggingId || !dragOverTarget) return;
+
+    const ids = sortedPlayers.map((p) => p.id);
+    const fromIndex = ids.indexOf(draggingId);
+    let insertIndex = ids.indexOf(targetId);
+
+    if (fromIndex === -1 || insertIndex === -1) {
+      setDraggingId(null);
+      setDragOverTarget(null);
+      return;
+    }
+
+    if (dragOverTarget.position === "after") {
+      insertIndex += 1;
+    }
+
+    const next = [...ids];
+    const [moved] = next.splice(fromIndex, 1);
+    if (!moved) {
+      setDraggingId(null);
+      setDragOverTarget(null);
+      return;
+    }
+
+    if (fromIndex < insertIndex) {
+      insertIndex -= 1;
+    }
+
+    next.splice(insertIndex, 0, moved);
+    reorderPlayers(next);
+    setDraggingId(null);
+    setDragOverTarget(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingId(null);
+    setDragOverTarget(null);
   };
 
   return (
@@ -78,9 +130,12 @@ export default function PlayersTable() {
       </CardHeader>
       <CardContent>
         <div className="flex gap-2 mb-4">
-          <Input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} className="max-w-[240px]" />
-          <Input placeholder="Seed" type="number" value={seed}
-                 onChange={(e) => setSeed(parseInt(e.target.value || "0", 10))} className="w-24" />
+          <Input
+            placeholder="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="max-w-[240px]"
+          />
           <Button onClick={onAdd}>Add player</Button>
         </div>
 
@@ -98,18 +153,41 @@ export default function PlayersTable() {
               </tr>
             </thead>
             <tbody>
-              {players
-                .slice()
-                .sort((a, b) => a.seed - b.seed)
-                .map((p) => (
-                  <tr key={p.id} className="border-t border-slate-200">
+              {sortedPlayers.map((p, idx) => {
+                const isDragging = draggingId === p.id;
+                const indicator =
+                  dragOverTarget?.id === p.id
+                    ? dragOverTarget.position === "before"
+                      ? { boxShadow: "inset 0 2px 0 0 rgba(79, 70, 229, 0.6)" }
+                      : { boxShadow: "inset 0 -2px 0 0 rgba(79, 70, 229, 0.6)" }
+                    : undefined;
+
+                return (
+                  <tr
+                    key={p.id}
+                    draggable
+                    onDragStart={() => setDraggingId(p.id)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      if (!draggingId || draggingId === p.id) return;
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const position = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                      setDragOverTarget({ id: p.id, position });
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      handleDrop(p.id);
+                    }}
+                    className={`border-t border-slate-200 transition-colors ${
+                      isDragging ? "opacity-60" : ""
+                    } cursor-grab active:cursor-grabbing`}
+                    style={indicator}
+                  >
                     <td className="py-2">
-                      <Input
-                        type="number"
-                        value={p.seed}
-                        onChange={(e) => updateSeed(p.id, parseInt(e.target.value || "0", 10))}
-                        className="w-20"
-                      />
+                      <div className="flex h-10 w-12 select-none items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-700 shadow-sm">
+                        {idx + 1}
+                      </div>
                     </td>
                     <td className="py-2">{p.name}</td>
                     <td className="py-2">{p.rating}</td>
@@ -120,7 +198,8 @@ export default function PlayersTable() {
                       <Button variant="destructive" onClick={() => removePlayer(p.id)}>Remove</Button>
                     </td>
                   </tr>
-                ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -128,5 +207,7 @@ export default function PlayersTable() {
     </Card>
   );
 }
+
+
 
 

@@ -12,10 +12,12 @@ export default function Home() {
       <TopBar />
       <main className="mx-auto max-w-6xl p-4">
         <Tabs defaultValue="players">
-          <TabsList className="flex mx-auto">
-            <TabsTrigger value="players">Tournament setup</TabsTrigger>
-            <TabsTrigger value="rounds">Rounds</TabsTrigger>
-          </TabsList>
+          <div className="flex justify-center">
+            <TabsList className="w-fit">
+              <TabsTrigger value="players">Tournament setup</TabsTrigger>
+              <TabsTrigger value="rounds">Rounds</TabsTrigger>
+            </TabsList>
+          </div>
           <TabsContent value="players" className="mt-6">
             <PlayersTable />
           </TabsContent>
@@ -27,3 +29,4 @@ export default function Home() {
     </EventProvider>
   );
 }
+

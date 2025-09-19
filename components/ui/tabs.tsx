@@ -63,7 +63,7 @@ export function TabsTrigger({
       data-state={isActive ? "active" : "inactive"}
       onClick={() => ctx.setValue(value)}
       className={twMerge(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+        "inline-flex items-center justify-center whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
         "data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
         "data-[state=inactive]:text-slate-600 hover:text-slate-900",
         className
@@ -91,5 +91,6 @@ export function useTabs() {
   if (!ctx) throw new Error("useTabs must be used within Tabs");
   return ctx;
 }
+
 
 
