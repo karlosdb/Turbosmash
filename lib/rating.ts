@@ -1,84 +1,83 @@
-import { Match, Player } from "./types";
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value));
+export function effTeam(R1: number, R2: number, s = 0.03) {
+  return (R1 + R2) / 2 - s * Math.abs(R1 - R2);
 }
 
-export function expectedShare(teamRatingA: number, teamRatingB: number): number {
-  return 1 / (1 + Math.pow(10, (teamRatingB - teamRatingA) / 400));
+export function expectedShare(RA: number, RB: number) {
+  return 1 / (1 + Math.pow(10, (RB - RA) / 400));
 }
 
-export function actualShare(pointsA: number, pointsB: number): number {
-  const total = pointsA + pointsB;
-  if (total <= 0) return 0.5; // guard zero
-  return pointsA / total;
+export function actualShare(pA: number, pB: number) {
+  const S = pA / Math.max(1, pA + pB);
+  return Math.min(0.95, Math.max(0.05, S));
 }
 
-export function kEff(pointsA: number, pointsB: number, roundIndex: 1 | 2 | 3): number {
-  const capRef = roundIndex === 1 ? 21 : 15;
-  return 24 * ((pointsA + pointsB) / capRef);
+export function capRef(roundIndex: 1 | 2 | 3) {
+  return roundIndex === 1 ? 21 : 15;
 }
 
-export function difficultyAdjustedK(
-  avgTeamA: number,
-  avgTeamB: number,
-  baseK: number
-): number {
-  const partnerAdj = 1 + clamp((avgTeamB - avgTeamA) / 400, -0.2, 0.2);
-  return baseK * partnerAdj;
+export function kBaseScaled(
+  pA: number,
+  pB: number,
+  roundIndex: 1 | 2 | 3,
+  GPavg: number,
+  RA: number,
+  RB: number,
+  samePartner: boolean,
+  repeatedOpp: boolean,
+  E: number,
+  S: number
+) {
+  const I = (pA + pB) / capRef(roundIndex);
+  const u0 = 0.6;
+  const U = 1.0 + u0 / Math.sqrt(Math.max(1, GPavg));
+  const D = 1 + Math.max(-0.25, Math.min(0.25, (RB - RA) / 400));
+  const repeatDamp = (samePartner ? 0.9 : 1.0) * (repeatedOpp ? 0.95 : 1.0);
+  const surprise = 0.5 + Math.abs(S - E);
+
+  const K_base = 24;
+  const K = K_base * I * U * D * repeatDamp * surprise;
+  return Math.max(8, Math.min(40, K));
 }
 
-export type EloDeltaResult = {
-  deltas: Record<string, number>; // playerId -> delta
-  pointsFor: Record<string, number>;
-  pointsAgainst: Record<string, number>;
-};
+export const clampDelta = (d: number, lim = 40) => Math.max(-lim, Math.min(lim, d));
 
-export function applyEloForMatch(
-  players: Player[],
-  match: Required<Pick<Match, "a1" | "a2" | "b1" | "b2" | "roundIndex">> & {
-    scoreA: number;
-    scoreB: number;
-  }
-): EloDeltaResult {
-  const byId: Record<string, Player> = players.reduce((m, p) => ((m[p.id] = p), m), {} as Record<string, Player>);
-  const a1 = byId[match.a1];
-  const a2 = byId[match.a2];
-  const b1 = byId[match.b1];
-  const b2 = byId[match.b2];
+export function waveClamp(roundIndex: 1 | 2 | 3, miniRoundIndex?: number) {
+  if (roundIndex !== 1) return 40;
+  if (miniRoundIndex === 1) return 20;
+  if (miniRoundIndex === 2) return 30;
+  return 40;
+}
 
-  const teamA = (a1.rating + a2.rating) / 2;
-  const teamB = (b1.rating + b2.rating) / 2;
-  const expectA = expectedShare(teamA, teamB);
-  const actualA = actualShare(match.scoreA, match.scoreB);
-  const baseK = kEff(match.scoreA, match.scoreB, match.roundIndex);
-  const k = difficultyAdjustedK(teamA, teamB, baseK);
-  const deltaTeamA = k * (actualA - expectA);
-  const deltaTeamB = -deltaTeamA;
+export function doublesEloDelta(
+  Ra1: number,
+  Ra2: number,
+  Rb1: number,
+  Rb2: number,
+  pA: number,
+  pB: number,
+  roundIndex: 1 | 2 | 3,
+  miniRoundIndex?: number,
+  samePartnerA = false,
+  repeatedOppA = false,
+  samePartnerB = false,
+  repeatedOppB = false,
+  GPavg: number = 1
+) {
+  const RA = effTeam(Ra1, Ra2);
+  const RB = effTeam(Rb1, Rb2);
+  const E = expectedShare(RA, RB);
+  const S = actualShare(pA, pB);
 
-  const clampDelta = (d: number) => clamp(d, -40, 40);
+  const KA = kBaseScaled(pA, pB, roundIndex, GPavg, RA, RB, samePartnerA, repeatedOppA, E, S);
+  // Compute KB for symmetry and potential future use. Currently KA determines dTeamA and dTeamB is symmetric.
+  const KB = kBaseScaled(pB, pA, roundIndex, GPavg, RB, RA, samePartnerB, repeatedOppB, 1 - E, 1 - S);
 
-  const deltas: Record<string, number> = {
-    [a1.id]: clampDelta(deltaTeamA),
-    [a2.id]: clampDelta(deltaTeamA),
-    [b1.id]: clampDelta(deltaTeamB),
-    [b2.id]: clampDelta(deltaTeamB),
+  const dTeamA = KA * (S - E);
+  const dTeamB = -dTeamA;
+
+  const lim = waveClamp(roundIndex, miniRoundIndex);
+  return {
+    dA: clampDelta(dTeamA, lim),
+    dB: clampDelta(dTeamB, lim),
   };
-
-  const pointsFor: Record<string, number> = {
-    [a1.id]: match.scoreA,
-    [a2.id]: match.scoreA,
-    [b1.id]: match.scoreB,
-    [b2.id]: match.scoreB,
-  };
-  const pointsAgainst: Record<string, number> = {
-    [a1.id]: match.scoreB,
-    [a2.id]: match.scoreB,
-    [b1.id]: match.scoreA,
-    [b2.id]: match.scoreA,
-  };
-
-  return { deltas, pointsFor, pointsAgainst };
 }
-
-

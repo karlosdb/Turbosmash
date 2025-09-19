@@ -1,4 +1,4 @@
-import { EventState, createEmptyEvent } from "./types";
+import { EventState, createEmptyEvent, defaultSchedulePrefs } from "./types";
 
 const STORAGE_KEY = "turbosmash:event";
 
@@ -7,7 +7,17 @@ export function loadState(): EventState | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as EventState;
+    const parsed = JSON.parse(raw) as Partial<EventState>;
+    const empty = createEmptyEvent();
+    return {
+      ...empty,
+      ...parsed,
+      schedulePrefs: {
+        ...defaultSchedulePrefs(),
+        ...(parsed?.schedulePrefs ?? {}),
+      },
+      createdAt: parsed?.createdAt ?? empty.createdAt,
+    };
   } catch {
     return null;
   }
@@ -25,12 +35,19 @@ export function exportJSON(state: EventState): string {
 }
 
 export function importJSON(json: string): EventState {
-  const obj = JSON.parse(json) as EventState;
-  return obj;
+  const obj = JSON.parse(json) as Partial<EventState>;
+  const empty = createEmptyEvent();
+  return {
+    ...empty,
+    ...obj,
+    schedulePrefs: {
+      ...defaultSchedulePrefs(),
+      ...(obj.schedulePrefs ?? {}),
+    },
+    createdAt: obj.createdAt ?? empty.createdAt,
+  };
 }
 
 export function initialState(): EventState {
   return createEmptyEvent();
 }
-
-

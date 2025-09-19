@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useEvent } from "@/lib/context";
 import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,12 +16,15 @@ export default function PlayersTable() {
     generateRound1,
     exportJSON,
     importJSON,
-    reset,
+    resetTournament,
+    resetAll,
     demo12,
     rounds,
     r1Signature,
   } = useEvent();
   const [name, setName] = useState("");
+  const [error, setError] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverTarget, setDragOverTarget] = useState<{ id: string; position: "before" | "after" } | null>(null);
   const tabs = useTabs();
@@ -45,10 +48,19 @@ export default function PlayersTable() {
   };
 
   const onAdd = () => {
-    if (!name.trim()) return;
+    const raw = name.trim();
+    if (!raw) return;
+    const exists = players.some((p) => p.name.trim().toLowerCase() === raw.toLowerCase());
+    if (exists) {
+      setError("Name already exists");
+      inputRef.current?.focus();
+      return;
+    }
     const nextSeed = players.length + 1;
-    addPlayer(name.trim(), nextSeed);
+    addPlayer(raw, nextSeed);
     setName("");
+    setError("");
+    setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const handleDrop = (targetId: string) => {
@@ -125,7 +137,8 @@ export default function PlayersTable() {
             };
             input.click();
           }}>Import JSON</Button>
-          <Button variant="ghost" onClick={() => reset()}>Reset</Button>
+          <Button variant="ghost" onClick={() => resetTournament()}>Reset tournament</Button>
+          <Button variant="destructive" onClick={() => resetAll()}>Reset all</Button>
         </div>
       </CardHeader>
       <CardContent>
@@ -133,11 +146,23 @@ export default function PlayersTable() {
           <Input
             placeholder="Name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (error) setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onAdd();
+              }
+            }}
+            ref={inputRef}
+            aria-invalid={!!error}
             className="max-w-[240px]"
           />
           <Button onClick={onAdd}>Add player</Button>
         </div>
+        {error && <div className="-mt-3 mb-3 text-sm text-rose-600">{error}</div>}
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

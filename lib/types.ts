@@ -2,53 +2,66 @@ export type Player = {
   id: string;
   name: string;
   seed: number;
-  rating: number; // starts at 1000
+  rating: number;
+  seedPrior?: number;
   gamesPlayed: number;
-  eliminatedAtRound?: 1 | 2;
-  lockedRank?: number; // fixed leaderboard placement once eliminated
   pointsFor: number;
   pointsAgainst: number;
-  lastPlayedAt?: number; // timestamp used to break ties for benching
+  eliminatedAtRound?: 1 | 2;
+  lockedRank?: number;
+  lastPartnerId?: string;
+  recentOpponents?: string[];
+  lastPlayedAt?: number;
 };
 
 export type Match = {
   id: string;
   roundIndex: 1 | 2 | 3;
+  miniRoundIndex?: number;
   court: number;
-  /** Optional mini-round batch index (1-based) for Round 1 batching */
-  miniRound?: number;
-  a1: string; // player id
-  a2: string; // player id
-  b1: string; // player id
-  b2: string; // player id
-  scoreA?: number; // points
-  scoreB?: number; // points
+  a1: string;
+  a2: string;
+  b1: string;
+  b2: string;
+  scoreA?: number;
+  scoreB?: number;
   status: "scheduled" | "completed";
-  notes?: string[]; // e.g., compromises like repeat partner unavoidable
+  compromise?: "repeat-partner" | "repeat-opponent" | "rating-gap";
 };
 
 export type Round = {
   index: 1 | 2 | 3;
   matches: Match[];
   status: "pending" | "active" | "closed";
-  /** Round 1 only: current mini-round index (1-based). 0 means none generated yet. */
-  currentMiniRound?: number;
-  /** Round 1 only: number of matches to schedule per mini-round */
-  miniRoundSize?: number;
-  /** Round 1 only: target games per player (default 3) */
-  targetGames?: number;
+  currentWave?: number;
+  totalWaves?: number;
+  waveSizes?: number[];
+};
+
+export type SchedulePrefs = {
+  courts: number;
+  r1TargetGamesPerPlayer: number;
+  r2TargetGamesPerPlayer: number;
 };
 
 export type EventState = {
   players: Player[];
-  rounds: Round[]; // 3 entries once generated
+  rounds: Round[];
   currentRound: 1 | 2 | 3;
   createdAt: string;
-  /** Signature of players+seeds when Round 1 was last generated */
+  schedulePrefs: SchedulePrefs;
   r1Signature?: string;
 };
 
 export type Id = string;
+
+export function defaultSchedulePrefs(): SchedulePrefs {
+  return {
+    courts: 3,
+    r1TargetGamesPerPlayer: 3,
+    r2TargetGamesPerPlayer: 2,
+  };
+}
 
 export function createEmptyEvent(): EventState {
   return {
@@ -56,6 +69,7 @@ export function createEmptyEvent(): EventState {
     rounds: [],
     currentRound: 1,
     createdAt: new Date().toISOString(),
+    schedulePrefs: defaultSchedulePrefs(),
   };
 }
 
@@ -65,5 +79,3 @@ export function byId<T extends { id: string }>(items: T[]): Record<string, T> {
     return map;
   }, {});
 }
-
-
