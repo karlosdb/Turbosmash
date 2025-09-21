@@ -81,3 +81,56 @@ export function doublesEloDelta(
     dB: clampDelta(dTeamB, lim),
   };
 }
+
+// Detailed variant that returns per-player splits and a brief reasoning message
+export function doublesEloDeltaDetailed(
+  Ra1: number,
+  Ra2: number,
+  Rb1: number,
+  Rb2: number,
+  pA: number,
+  pB: number,
+  roundIndex: 1 | 2 | 3,
+  miniRoundIndex?: number,
+  samePartnerA = false,
+  repeatedOppA = false,
+  samePartnerB = false,
+  repeatedOppB = false,
+  GPavg: number = 1
+) {
+  const RA = effTeam(Ra1, Ra2);
+  const RB = effTeam(Rb1, Rb2);
+  const E = expectedShare(RA, RB);
+  const S = actualShare(pA, pB);
+
+  const KA = kBaseScaled(pA, pB, roundIndex, GPavg, RA, RB, samePartnerA, repeatedOppA, E, S);
+  const dTeamA = KA * (S - E);
+  const lim = waveClamp(roundIndex, miniRoundIndex);
+  const dA = clampDelta(dTeamA, lim);
+  const dB = -dA;
+
+  // Split team delta to players inversely proportional to their advantage vs partner
+  // Stronger partner takes a smaller share; weaker partner gets a larger share
+  const shareA1 = Ra1 === 0 && Ra2 === 0 ? 0.5 : (Ra2 > 0 ? Ra2 : 1) / ((Ra1 > 0 ? Ra1 : 1) + (Ra2 > 0 ? Ra2 : 1));
+  const shareA2 = 1 - shareA1;
+  const shareB1 = Rb2 === 0 && Rb1 === 0 ? 0.5 : (Rb2 > 0 ? Rb2 : 1) / ((Rb1 > 0 ? Rb1 : 1) + (Rb2 > 0 ? Rb2 : 1));
+  const shareB2 = 1 - shareB1;
+
+  const da1 = dA * shareA1;
+  const da2 = dA * shareA2;
+  const db1 = dB * shareB1;
+  const db2 = dB * shareB2;
+
+  // Build short reasoning string
+  const tougher = RB - RA;
+  const partnerGapA = Math.abs(Ra1 - Ra2);
+  const partnerGapB = Math.abs(Rb1 - Rb2);
+  const beats = S > E ? "outperformed" : "underperformed";
+  const reason = `E=${(E*100).toFixed(0)}% vs S=${(S*100).toFixed(0)}%, opponent ${(tougher>0?"stronger":"weaker")} by ${Math.abs(tougher).toFixed(0)}, partner gaps A:${partnerGapA.toFixed(0)} B:${partnerGapB.toFixed(0)} (${beats} expectation)`;
+
+  return {
+    perPlayer: { da1: Math.round(da1), da2: Math.round(da2), db1: Math.round(db1), db2: Math.round(db2) },
+    team: { dA: Math.round(dA), dB: Math.round(dB) },
+    reason,
+  };
+}

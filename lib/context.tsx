@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { EventState, Match, Player, Round, SchedulePrefs } from "./types";
 import { createEmptyEvent } from "./types";
 import { loadState, saveState, exportJSON as doExportJSON, importJSON as doImportJSON, initialState } from "./state";
-import { doublesEloDelta } from "./rating";
+import { doublesEloDelta, doublesEloDeltaDetailed } from "./rating";
 import { prepareRound1, generateR1Wave, generateLaterRound } from "./matchmaking";
 import { cutAfterR1, cutAfterR2ToFinalFour, rankPlayers } from "./elimination";
 
@@ -15,6 +15,7 @@ type EventContextShape = {
   currentRound: 1 | 2 | 3;
   schedulePrefs: SchedulePrefs;
   r1Signature?: string;
+  initialRatingsById?: Record<string, number>;
 
   // player mgmt
   addPlayer: (name: string, seed: number) => void;
@@ -40,6 +41,8 @@ type EventContextShape = {
   resetTournament: () => void;
   resetAll: () => void;
   demo12: () => void;
+  exportRatingsJSON: () => string;
+  exportAnalysisCSV: () => string;
 };
 
 const EventContext = createContext<EventContextShape | null>(null);
@@ -78,6 +81,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   const currentRound = state.currentRound;
   const schedulePrefs = state.schedulePrefs;
   const r1Signature = state.r1Signature;
+  const initialRatingsById = state.initialRatingsById;
 
   const addPlayer = useCallback((name: string, seed: number) => {
     setState((s) => {
@@ -116,8 +120,9 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     setState((s) => {
       if (s.players.length < 8) return s;
       const r1 = prepareRound1(s.players, s.schedulePrefs);
+      const initialRatings: Record<string, number> = Object.fromEntries(s.players.map((p) => [p.id, p.rating]));
       const nextSig = computeR1Signature(s.players);
-      return { ...s, rounds: [r1], currentRound: 1, r1Signature: nextSig };
+      return { ...s, rounds: [r1], currentRound: 1, r1Signature: nextSig, initialRatingsById: initialRatings };
     });
   }, []);
 
@@ -156,6 +161,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         eliminatedAtRound: eliminatedSet.has(p.id) ? 1 : p.eliminatedAtRound,
       }));
       const survivors = nextPlayers.filter((p) => keepSet.has(p.id));
+      // Re-seed survivors by round-1 point differential, maintaining deterministic structure
       const r2Matches = generateLaterRound(survivors, [r1Closed], 2, s.schedulePrefs.courts);
       const r2: Round = { index: 2, matches: r2Matches, status: "active" };
       const nextRounds = [r1Closed, r2];
@@ -218,7 +224,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       if (!a1 || !a2 || !b1 || !b2) return s;
 
       const gpAvg = Math.max(1, (a1.gamesPlayed + a2.gamesPlayed + b1.gamesPlayed + b2.gamesPlayed) / 4);
-      const delta = doublesEloDelta(
+      const detailed = doublesEloDeltaDetailed(
         a1.rating,
         a2.rating,
         b1.rating,
@@ -247,10 +253,20 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       const pa2 = nextPlayers.find((p) => p.id === a2.id)!;
       const pb1 = nextPlayers.find((p) => p.id === b1.id)!;
       const pb2 = nextPlayers.find((p) => p.id === b2.id)!;
-      inc(pa1, delta.dA);
-      inc(pa2, delta.dA);
-      inc(pb1, delta.dB);
-      inc(pb2, delta.dB);
+      inc(pa1, detailed.perPlayer.da1);
+      inc(pa2, detailed.perPlayer.da2);
+      inc(pb1, detailed.perPlayer.db1);
+      inc(pb2, detailed.perPlayer.db2);
+
+      // Append reasoning logs
+      const addLog = (p: Player, delta: number) => {
+        const entry = { matchId, delta, reason: detailed.reason };
+        p.eloLog = [...(p.eloLog || []), entry];
+      };
+      addLog(pa1, detailed.perPlayer.da1);
+      addLog(pa2, detailed.perPlayer.da2);
+      addLog(pb1, detailed.perPlayer.db1);
+      addLog(pb2, detailed.perPlayer.db2);
 
       const nextRounds = s.rounds.map((r) => {
         if (!r.matches.some((m) => m.id === matchId)) return r;
@@ -304,18 +320,49 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
 
   const resetAll = useCallback(() => setState(createEmptyEvent()), []);
 
+  const exportRatingsJSON = useCallback(() => {
+    const entries = players.map((p) => [p.name, p.rating] as const);
+    return JSON.stringify(Object.fromEntries(entries), null, 2);
+  }, [players]);
+
+  const exportAnalysisCSV = useCallback(() => {
+    const header = ["Name","Seed","Start Elo","End Elo","Δ Elo","PF","PA","PD","Games","LockedRank"].join(",");
+    const start = initialRatingsById || {};
+    const lines = players.map((p) => {
+      const s = start[p.id] ?? p.rating;
+      const e = p.rating;
+      const d = e - s;
+      const pd = (p.pointsFor || 0) - (p.pointsAgainst || 0);
+      const games = p.gamesPlayed || 0;
+      return [
+        JSON.stringify(p.name),
+        p.seed,
+        s,
+        e,
+        d,
+        p.pointsFor || 0,
+        p.pointsAgainst || 0,
+        pd,
+        games,
+        p.lockedRank ?? "",
+      ].join(",");
+    });
+    return [header, ...lines].join("\n");
+  }, [players, initialRatingsById]);
+
   const demo12 = useCallback(() => {
     setState((s) => {
       if (s.players.length > 0) return s;
       const names = [
         "Alex","Blake","Casey","Drew","Evan","Flynn","Gray","Hayden","Indy","Jules","Kai","Logan",
       ];
+      const N = names.length;
       const players: Player[] = names.map((name, idx) => ({
         id: uid("plr"),
         name,
         seed: idx + 1,
-        rating: 1000,
-        seedPrior: 1000,
+        rating: 1000 + 25 * ((N + 1 - 2 * (idx + 1)) / 2),
+        seedPrior: 1000 + 25 * ((N + 1 - 2 * (idx + 1)) / 2),
         gamesPlayed: 0,
         pointsFor: 0,
         pointsAgainst: 0,
@@ -331,6 +378,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     currentRound,
     schedulePrefs,
     r1Signature,
+    initialRatingsById,
     addPlayer,
     removePlayer,
     reorderPlayers,
@@ -346,7 +394,9 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     resetTournament,
     resetAll,
     demo12,
-  }), [players, rounds, currentRound, schedulePrefs, r1Signature, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceR1Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo12]);
+    exportRatingsJSON,
+    exportAnalysisCSV,
+  }), [players, rounds, currentRound, schedulePrefs, r1Signature, initialRatingsById, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceR1Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo12, exportRatingsJSON, exportAnalysisCSV]);
 
   return <EventContext.Provider value={value}>{children}</EventContext.Provider>;
 }

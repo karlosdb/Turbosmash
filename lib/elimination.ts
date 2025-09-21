@@ -33,7 +33,6 @@ function rankForCut(players: Player[], rounds: EventState["rounds"]): Player[] {
   // build head-to-head map from completed matches
   const completed: Match[] = rounds.flatMap((r) => r.matches).filter((m) => m.status === "completed");
   const beatMap: Record<string, Record<string, number>> = {}; // a->b wins
-  const scoreMap: Record<string, Record<string, { for: number; against: number }>> = {};
   for (const m of completed) {
     const aIds = [m.a1, m.a2];
     const bIds = [m.b1, m.b2];
@@ -42,14 +41,6 @@ function rankForCut(players: Player[], rounds: EventState["rounds"]): Player[] {
       for (const b of bIds) {
         beatMap[a] = beatMap[a] || {};
         beatMap[b] = beatMap[b] || {};
-        scoreMap[a] = scoreMap[a] || {};
-        scoreMap[b] = scoreMap[b] || {};
-        scoreMap[a][b] = scoreMap[a][b] || { for: 0, against: 0 };
-        scoreMap[b][a] = scoreMap[b][a] || { for: 0, against: 0 };
-        scoreMap[a][b].for += m.scoreA ?? 0;
-        scoreMap[a][b].against += m.scoreB ?? 0;
-        scoreMap[b][a].for += m.scoreB ?? 0;
-        scoreMap[b][a].against += m.scoreA ?? 0;
         if (aWon) beatMap[a][b] = (beatMap[a][b] || 0) + 1;
         else beatMap[b][a] = (beatMap[b][a] || 0) + 1;
       }
@@ -63,9 +54,8 @@ function rankForCut(players: Player[], rounds: EventState["rounds"]): Player[] {
     return aWins > bWins ? -1 : 1; // a ahead if more wins
   };
 
-  // Sort by: current rating desc, then point differential desc, then head-to-head, then higher initial seed (lower number)
+  // Sort by: point differential desc, then head-to-head, then initial seed
   return [...players].sort((a, b) => {
-    if (b.rating !== a.rating) return b.rating - a.rating;
     const diffA = pointDiff[a.id] || 0;
     const diffB = pointDiff[b.id] || 0;
     if (diffB !== diffA) return diffB - diffA;

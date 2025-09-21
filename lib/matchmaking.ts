@@ -370,18 +370,101 @@ function createAdaptiveWaveMatches(players: Player[], waveIndex: number, history
   });
 }
 
+// Deterministic group partitioning by seed into chunks of 8–12
+function partitionIntoGroupsBySeed(players: Player[]): Player[][] {
+  const sorted = [...players].sort((a, b) => a.seed - b.seed);
+  const N = sorted.length;
+  const groups: Player[][] = [];
+  let idx = 0;
+  while (idx < N) {
+    const remaining = N - idx;
+    // Prefer 12, fallback to 10 or 8, avoid 9/11 only when necessary
+    let size = 12;
+    if (remaining < 12) {
+      if (remaining >= 10) size = remaining; else if (remaining >= 8) size = remaining; else size = remaining;
+    } else if (remaining % 12 === 0) {
+      size = 12;
+    } else if (remaining % 12 === 8) {
+      size = 12;
+    } else if (remaining % 10 === 0 || remaining % 10 >= 8) {
+      size = 10;
+    } else if (remaining % 8 === 0) {
+      size = 8;
+    } else {
+      // Greedy: pick the largest that leaves 8–12 remainder
+      if ((remaining - 12) >= 8) size = 12; else if ((remaining - 10) >= 8) size = 10; else size = 8;
+    }
+    groups.push(sorted.slice(idx, idx + size));
+    idx += size;
+  }
+  return groups;
+}
+
 export function prepareRound1(players: Player[], prefs: SchedulePrefs): Round {
+  // We still use waves UI, but matches will be appended deterministically per group when wave advances
   const totalMatches = matchesNeeded(players.length, 1);
   const derivedCourts = Math.max(1, Math.floor(players.length / 4));
   const waveSizes = computeWaveSizes(totalMatches, derivedCourts);
-  return {
-    index: 1,
-    matches: [],
-    status: "active",
-    currentWave: 0,
-    totalWaves: waveSizes.length,
-    waveSizes,
+  return { index: 1, matches: [], status: "active", currentWave: 0, totalWaves: waveSizes.length, waveSizes };
+}
+
+// Desktop deterministic: within each group of 8–12, pair (1&3 vs 2&4), (5&7 vs 6&8), and for 12 add (9&11 vs 10&12)
+function createDeterministicGroupMatches(group: Player[], groupIndex: number, phase: 1 | 2, waveIndex: number): Match[] {
+  // Determine bench count per wave for group sizes > 8
+  const size = group.length;
+  let benchCount = 0;
+  if (size === 9) benchCount = 1;
+  else if (size === 10) benchCount = 2;
+  else if (size === 11) benchCount = 3;
+  else if (size >= 12) benchCount = 0;
+
+  // Simple deterministic bye rotation patterns (repeat every 3 waves)
+  const byePatterns: Record<number, number[][]> = {
+    9: [[8], [7], [6]],
+    10: [[8, 9], [6, 7], [4, 5]],
+    11: [[8, 9, 10], [5, 6, 7], [2, 3, 4]],
+    12: [[]],
   };
+  const pattern = byePatterns[size] || [[]];
+  const benchIdxs = pattern[(waveIndex - 1) % pattern.length] || [];
+
+  const active: Player[] = group.filter((_, idx) => !benchIdxs.includes(idx)).slice(0, size >= 12 ? 12 : 8);
+
+  const matches: Match[] = [];
+  const ids = active.map((p) => p.id);
+  const mk = (a1: number, a2: number, b1: number, b2: number, courtOffset: number) => ({
+    id: uid(`r${phase}w${waveIndex}`),
+    roundIndex: phase,
+    miniRoundIndex: waveIndex,
+    court: courtOffset,
+    groupIndex,
+    a1: ids[a1], a2: ids[a2], b1: ids[b1], b2: ids[b2],
+    status: "scheduled" as const,
+  });
+  if (ids.length >= 8) {
+    matches.push(mk(0, 2, 1, 3, 1));
+    matches.push(mk(4, 6, 5, 7, 2));
+  }
+  if (ids.length >= 12) {
+    matches.push(mk(8, 10, 9, 11, 3));
+  }
+  return matches;
+}
+
+function pointsDiffMapFromMatches(matches: Match[]): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const m of matches) {
+    if (m.status !== "completed") continue;
+    const a = m.scoreA ?? 0;
+    const b = m.scoreB ?? 0;
+    const ids = [m.a1, m.a2, m.b1, m.b2];
+    for (const id of ids) map[id] = map[id] ?? 0;
+    map[m.a1] += a - b;
+    map[m.a2] += a - b;
+    map[m.b1] += b - a;
+    map[m.b2] += b - a;
+  }
+  return map;
 }
 
 export function generateR1Wave(
@@ -392,23 +475,27 @@ export function generateR1Wave(
 ): { matches: Match[]; benched: Player[] } {
   const waveSize = round.waveSizes?.[waveIndex - 1] ?? 0;
   if (waveSize <= 0) return { matches: [], benched: [] };
-  const beta = waveBeta(waveIndex);
-  const playerCount = Math.min(players.length, waveSize * 4);
-  const wavePlayers = selectPlayersForWave(players, playerCount, beta);
-  const waveSet = new Set(wavePlayers.map((p) => p.id));
-  const benched = players.filter((p) => !waveSet.has(p.id));
-  const history = mergeHistory(buildHistory(round.matches), buildHistory(priorRounds.flatMap((r) => r.matches)));
-  let matches: Match[];
-  if (waveIndex === 1) {
-    matches = createWave1Matches(wavePlayers, waveIndex, history);
-  } else {
-    matches = createAdaptiveWaveMatches(wavePlayers, waveIndex, history);
+  const groups = partitionIntoGroupsBySeed(players);
+  const matches: Match[] = [];
+  let courtCounter = 1;
+  for (let gi = 0; gi < groups.length; gi++) {
+    const group = groups[gi];
+    // Re-rank inside group by current point differential before subsequent waves
+    let groupSorted = [...group];
+    if (waveIndex > 1) {
+      const pd = pointsDiffMapFromMatches(round.matches);
+      groupSorted.sort((a, b) => (pd[b.id] ?? 0) - (pd[a.id] ?? 0) || a.seed - b.seed);
+    }
+    const ms = createDeterministicGroupMatches(groupSorted, gi + 1, 1, waveIndex);
+    ms.forEach((m) => { m.court = courtCounter++; });
+    matches.push(...ms);
   }
-  matches = matches.slice(0, waveSize);
-  matches.forEach((m, idx) => {
-    m.court = (idx % Math.max(1, waveSize)) + 1;
-  });
-  return { matches, benched };
+  // Limit to available courts in this wave
+  const limited = matches.slice(0, waveSize);
+  const usedIds = new Set<string>();
+  limited.forEach((m) => { usedIds.add(m.a1); usedIds.add(m.a2); usedIds.add(m.b1); usedIds.add(m.b2); });
+  const benched = players.filter((p) => !usedIds.has(p.id));
+  return { matches: limited, benched };
 }
 
 function generateFinalFour(players: Player[]): Match[] {
@@ -441,30 +528,23 @@ export function generateLaterRound(
   if (roundIndex === 3 && players.length === 4) {
     return generateFinalFour(players);
   }
-  const totalMatches = matchesNeeded(players.length, roundIndex);
-  if (totalMatches <= 0) return [];
-  const history = mergeHistory(...priorRounds.map((r) => buildHistory(r.matches)));
-  const beta = roundIndex === 2 ? 0.7 : 0.8;
-  const metas = [...players]
-    .sort((a, b) => playerBlend(a, beta) - playerBlend(b, beta))
-    .map((player, idx) => ({ player, blend: playerBlend(player, beta), tier: Math.floor(idx / 4) }));
-  const pairs = buildPairs(metas, history);
-  const grouped = pairTeamsForWave(pairs, history).slice(0, totalMatches);
-  return grouped.map((g, idx) => {
-    const m: Match = {
-      id: uid(`r${roundIndex}`),
-      roundIndex,
-      miniRoundIndex: idx + 1,
-      court: (idx % courts) + 1,
-      a1: g.teams[0][0].id,
-      a2: g.teams[0][1].id,
-      b1: g.teams[1][0].id,
-      b2: g.teams[1][1].id,
-      status: "scheduled",
-      compromise: g.compromise,
-    };
-    return m;
-  });
+  if (roundIndex === 2) {
+    // Deterministic per-group same pattern using survivors ranked by point differential within each group
+    const groups = partitionIntoGroupsBySeed(players).map((group) => {
+      const pd = pointsDiffMapFromMatches(priorRounds.flatMap((r) => r.matches));
+      return [...group].sort((a, b) => (pd[b.id] ?? 0) - (pd[a.id] ?? 0) || a.seed - b.seed);
+    });
+    const matches: Match[] = [];
+    let courtCounter = 1;
+    for (let gi = 0; gi < groups.length; gi++) {
+      const group = groups[gi];
+      const ms = createDeterministicGroupMatches(group, gi + 1, 2, 1);
+      ms.forEach((m) => { m.court = ((courtCounter - 1) % Math.max(1, courts)) + 1; courtCounter++; });
+      matches.push(...ms);
+    }
+    return matches;
+  }
+  return [];
 }
 
 

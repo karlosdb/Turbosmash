@@ -70,7 +70,7 @@ export default function RoundsEditor() {
                           {currentWave > 0 ? `Wave ${currentWave} of ${totalWaves}` : "Waiting for first wave"}
                         </div>
                         <div className="text-xs text-indigo-700">
-                          Pairing uses blended ratings (beta = 0.4/0.7) and R0 seeds to stay curious then tighten.
+                          Deterministic per-group pairings: seeds 1&3 vs 2&4, 5&7 vs 6&8, with fair cuts.
                         </div>
                       </div>
                       <dl className="flex flex-wrap items-center gap-6 text-sm">

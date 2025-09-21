@@ -3,6 +3,8 @@ export type Player = {
   name: string;
   seed: number;
   rating: number;
+  // Log of Elo updates with brief reasoning strings
+  eloLog?: { matchId: string; delta: number; reason: string }[];
   seedPrior?: number;
   gamesPlayed: number;
   pointsFor: number;
@@ -19,6 +21,8 @@ export type Match = {
   roundIndex: 1 | 2 | 3;
   miniRoundIndex?: number;
   court: number;
+  // Deterministic grouping identifier for Round 1/2 scheduling
+  groupIndex?: number;
   a1: string;
   a2: string;
   b1: string;
@@ -51,6 +55,10 @@ export type EventState = {
   createdAt: string;
   schedulePrefs: SchedulePrefs;
   r1Signature?: string;
+  // Capture starting ratings to compute post-event Elo deltas
+  initialRatingsById?: Record<string, number>;
+  // Deterministic R1 group assignments (by player id)
+  r1Groups?: string[][];
 };
 
 export type Id = string;

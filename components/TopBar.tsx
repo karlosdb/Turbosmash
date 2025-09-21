@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { twMerge } from "tailwind-merge";
+import { useEvent } from "@/lib/context";
 
 const sections = [
   {
@@ -37,9 +38,9 @@ const sections = [
     body: (
       <>
         <p>
-          We model each team as an adjusted average of its players and feed those ratings into a classic Elo expected score
-          curve. If Team A is stronger, their expected point share creeps above 50%; if not, it drops. Actual point share is
-          clamped between 5% and 95% so flukes don&apos;t spike ratings.
+          Pairings are deterministic and point-based so the bracket feels fair and explainable. In the background, we still
+          compute Elo from scored results for post-event analysis and future seeding. Elo uses an adjusted team average and a
+          classic expected-score curve; actual share is clamped to avoid flukes.
         </p>
       </>
     ),
@@ -69,9 +70,8 @@ const sections = [
     title: "Seeding prior",
     body: (
       <p>
-        Seeds become R0 priors near 1000 with gentle spacing. Early matchmaking blends toward the prior (beta = 0.4 in wave 2,
-        beta = 0.7 in wave 3) so one upset doesn&apos;t crown the bracket. Actual Elo updates never look at the prior—only the
-        schedule does.
+        Seeds become R0 priors near 1000 with gentle spacing. Early matchmaking previously blended toward the prior; now
+        pairings are deterministic by seed within groups. Elo doesn&apos;t affect pairings; it&apos;s used post-event.
       </p>
     ),
   },
@@ -100,6 +100,7 @@ const sections = [
 ];
 
 export default function TopBar() {
+  const { exportRatingsJSON, exportAnalysisCSV } = useEvent();
   return (
     <motion.header
       initial={{ y: -12, opacity: 0 }}
@@ -116,7 +117,7 @@ export default function TopBar() {
           <DialogTrigger asChild>
             <Button variant="secondary" size="sm" className="gap-2">
               <CircleHelp className="h-4 w-4" />
-              How does Elo work?
+              How does Elo work (post-event)?
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -132,6 +133,36 @@ export default function TopBar() {
                   {section.body}
                 </ManifestoSection>
               ))}
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const blob = new Blob([exportRatingsJSON()], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "ratings.json";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  Export Ratings JSON
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const blob = new Blob([exportAnalysisCSV()], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "post-tournament-analysis.csv";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                >
+                  Export Analysis CSV
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
