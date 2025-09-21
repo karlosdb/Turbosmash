@@ -1,4 +1,4 @@
-export function effTeam(R1: number, R2: number, s = 0.03) {
+﻿export function effTeam(R1: number, R2: number, s = 0.03) {
   return (R1 + R2) / 2 - s * Math.abs(R1 - R2);
 }
 
@@ -13,6 +13,15 @@ export function actualShare(pA: number, pB: number) {
 
 export function capRef(roundIndex: 1 | 2 | 3) {
   return roundIndex === 1 ? 21 : 15;
+}
+
+export function adjustExpectationForRace(E: number, roundIndex: 1 | 2 | 3) {
+  if (roundIndex === 1) return E;
+  const baseline = capRef(1);
+  const current = capRef(roundIndex);
+  if (baseline <= 0 || current <= 0) return E;
+  const blend = Math.max(0, Math.min(1, current / baseline));
+  return 0.5 + (E - 0.5) * blend;
 }
 
 export function kBaseScaled(
@@ -65,7 +74,8 @@ export function doublesEloDelta(
 ) {
   const RA = effTeam(Ra1, Ra2);
   const RB = effTeam(Rb1, Rb2);
-  const E = expectedShare(RA, RB);
+  const baseE = expectedShare(RA, RB);
+  const E = adjustExpectationForRace(baseE, roundIndex);
   const S = actualShare(pA, pB);
 
   const KA = kBaseScaled(pA, pB, roundIndex, GPavg, RA, RB, samePartnerA, repeatedOppA, E, S);
@@ -100,7 +110,8 @@ export function doublesEloDeltaDetailed(
 ) {
   const RA = effTeam(Ra1, Ra2);
   const RB = effTeam(Rb1, Rb2);
-  const E = expectedShare(RA, RB);
+  const baseE = expectedShare(RA, RB);
+  const E = adjustExpectationForRace(baseE, roundIndex);
   const S = actualShare(pA, pB);
 
   const KA = kBaseScaled(pA, pB, roundIndex, GPavg, RA, RB, samePartnerA, repeatedOppA, E, S);
@@ -126,7 +137,7 @@ export function doublesEloDeltaDetailed(
   const partnerGapA = Math.abs(Ra1 - Ra2);
   const partnerGapB = Math.abs(Rb1 - Rb2);
   const beats = S > E ? "outperformed" : "underperformed";
-  const reason = `E=${(E*100).toFixed(0)}% vs S=${(S*100).toFixed(0)}%, opponent ${(tougher>0?"stronger":"weaker")} by ${Math.abs(tougher).toFixed(0)}, partner gaps A:${partnerGapA.toFixed(0)} B:${partnerGapB.toFixed(0)} (${beats} expectation)`;
+  const reason = `E=${(E * 100).toFixed(0)}% vs S=${(S * 100).toFixed(0)}%, opponent ${(tougher > 0 ? "stronger" : "weaker")} by ${Math.abs(tougher).toFixed(0)}, partner gaps A:${partnerGapA.toFixed(0)} B:${partnerGapB.toFixed(0)} (${beats} expectation)`;
 
   return {
     perPlayer: { da1: Math.round(da1), da2: Math.round(da2), db1: Math.round(db1), db2: Math.round(db2) },
