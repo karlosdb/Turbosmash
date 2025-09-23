@@ -5,7 +5,7 @@ import type { EventState, Match, Player, Round, SchedulePrefs } from "./types";
 import { createEmptyEvent } from "./types";
 import { loadState, saveState, exportJSON as doExportJSON, importJSON as doImportJSON, initialState } from "./state";
 import { doublesEloDelta, doublesEloDeltaDetailed } from "./rating";
-import { prepareRound1, generateR1Wave, generateLaterRound } from "./matchmaking";
+import { prepareRound1, generateR1Wave, generateLaterRound, r1WaveSequenceFromPrefs } from "./matchmaking";
 import { cutAfterR1, cutAfterR2ToFinalFour, rankPlayers } from "./elimination";
 
 type EventContextShape = {
@@ -113,7 +113,23 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateSchedulePrefs = useCallback((patch: Partial<SchedulePrefs>) => {
-    setState((s) => ({ ...s, schedulePrefs: { ...s.schedulePrefs, ...patch } }));
+    setState((s) => {
+      const nextPrefs = { ...s.schedulePrefs, ...patch };
+      let rounds = s.rounds;
+      if (patch.r1WaveOrder && patch.r1WaveOrder !== s.schedulePrefs.r1WaveOrder) {
+        rounds = s.rounds.map((round) => {
+          if (round.index !== 1) return round;
+          if ((round.currentWave ?? 0) > 0) return round;
+          const baseline = prepareRound1(s.players, nextPrefs);
+          return {
+            ...round,
+            totalWaves: baseline.totalWaves,
+            waveSizes: baseline.waveSizes,
+          };
+        });
+      }
+      return { ...s, schedulePrefs: nextPrefs, rounds };
+    });
   }, []);
 
   const generateRound1 = useCallback(() => {
@@ -131,8 +147,10 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       const r1 = s.rounds.find((r) => r.index === 1);
       if (!r1 || r1.status !== "active") return s;
       const nextWave = (r1.currentWave ?? 0) + 1;
-      if ((r1.totalWaves ?? 0) > 0 && nextWave > (r1.totalWaves ?? 0)) return s;
-      const { matches, benched } = generateR1Wave(nextWave, s.players, r1, []);
+      const sequence = r1WaveSequenceFromPrefs(s.schedulePrefs);
+      const totalWaves = r1.totalWaves ?? sequence.length;
+      if (totalWaves > 0 && nextWave > totalWaves) return s;
+      const { matches, benched } = generateR1Wave(nextWave, s.players, r1, [], s.schedulePrefs);
       const benchedSet = new Set(benched.map((p) => p.id));
       const updatedPlayers = s.players.map((p) => ({ ...p, lastPlayedAt: benchedSet.has(p.id) ? p.lastPlayedAt : Date.now() }));
       const updatedR1: Round = {

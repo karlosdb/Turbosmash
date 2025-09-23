@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,39 +18,122 @@ export default function Leaderboard() {
   // Round multipliers (desktop session multipliers): R1=1.0, R2=1.2, R3=1.4
   const roundWeight: Record<1 | 2 | 3, number> = { 1: 1.0, 2: 1.2, 3: 1.4 };
 
-  // Show active players first by weighted points scored, then eliminated players by locked rank
-  const sorted = useMemo(() => {
-    const active = players.filter((p) => !p.eliminatedAtRound);
-    const eliminated = players.filter((p) => p.eliminatedAtRound);
-    const weightedPF: Record<string, number> = {};
-    const weightedPA: Record<string, number> = {};
-    for (const p of players) { weightedPF[p.id] = 0; weightedPA[p.id] = 0; }
+  const nameById = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p.name ?? p.id])), [players]);
+
+  type Metric = {
+    weightedPF: number;
+    weightedPA: number;
+    rawPF: number;
+    rawPA: number;
+    wins: number;
+    losses: number;
+    pdTotal: number;
+    pdEntries: string[];
+  };
+
+  const metrics = useMemo(() => {
+    const init = (): Metric => ({
+      weightedPF: 0,
+      weightedPA: 0,
+      rawPF: 0,
+      rawPA: 0,
+      wins: 0,
+      losses: 0,
+      pdTotal: 0,
+      pdEntries: [],
+    });
+    const map: Record<string, Metric> = {};
+    const ensure = (id: string) => {
+      if (!map[id]) map[id] = init();
+      return map[id];
+    };
+    players.forEach((p) => ensure(p.id));
     for (const r of rounds) {
       for (const m of r.matches) {
         if (m.status !== "completed") continue;
-        const rw = roundWeight[m.roundIndex as 1 | 2 | 3] || 1.0;
-        const a = m.scoreA ?? 0;
-        const b = m.scoreB ?? 0;
-        weightedPF[m.a1] += a * rw; weightedPF[m.a2] += a * rw;
-        weightedPF[m.b1] += b * rw; weightedPF[m.b2] += b * rw;
-        weightedPA[m.a1] += b * rw; weightedPA[m.a2] += b * rw;
-        weightedPA[m.b1] += a * rw; weightedPA[m.b2] += a * rw;
+        const ri = m.roundIndex as 1 | 2 | 3;
+        const rw = roundWeight[ri] || 1.0;
+        const scoreA = m.scoreA ?? 0;
+        const scoreB = m.scoreB ?? 0;
+        const diffA = scoreA - scoreB;
+        const diffB = scoreB - scoreA;
+        const cappedA = Math.max(-8, Math.min(8, diffA));
+        const cappedB = Math.max(-8, Math.min(8, diffB));
+        const labelBase = m.miniRoundIndex ? `R${ri}/W${m.miniRoundIndex}` : `R${ri}`;
+        const opponentsA = [nameById[m.b1], nameById[m.b2]].filter(Boolean).join(" & ");
+        const opponentsB = [nameById[m.a1], nameById[m.a2]].filter(Boolean).join(" & ");
+        const buildEntry = (scored: number, allowed: number, diff: number, capped: number, opp: string) => {
+          const cappedNote = capped !== diff ? ` (capped to ${capped})` : "";
+          return `${labelBase} vs ${opp || "TBD"}: ${scored}-${allowed} (diff ${diff}${cappedNote})`;
+        };
+        const record = (
+          id: string,
+          scored: number,
+          allowed: number,
+          win: boolean,
+          diff: number,
+          cappedDiff: number,
+          entry: string,
+        ) => {
+          const bucket = ensure(id);
+          bucket.rawPF += scored;
+          bucket.rawPA += allowed;
+          bucket.weightedPF += scored * rw;
+          bucket.weightedPA += allowed * rw;
+          bucket.pdTotal += cappedDiff;
+          bucket.pdEntries.push(entry);
+          if (win) bucket.wins += 1;
+          else bucket.losses += 1;
+        };
+        const entryA = buildEntry(scoreA, scoreB, diffA, cappedA, opponentsA);
+        const entryB = buildEntry(scoreB, scoreA, diffB, cappedB, opponentsB);
+        const aWon = diffA > 0;
+        record(m.a1, scoreA, scoreB, aWon, diffA, cappedA, entryA);
+        record(m.a2, scoreA, scoreB, aWon, diffA, cappedA, entryA);
+        record(m.b1, scoreB, scoreA, !aWon, diffB, cappedB, entryB);
+        record(m.b2, scoreB, scoreA, !aWon, diffB, cappedB, entryB);
       }
     }
+    return map;
+  }, [players, rounds, nameById]);
+
+  const rankingTooltip = "Ranking tiebreakers: Score (weighted points) → Wins → Point differential (±8 cap) → Points lost → Seed.";
+  const rankingDescription = "Score = weighted points (R1 x1.0, R2 x1.2, R3 x1.4). Tiebreakers: wins → point diff (±8 cap) → points lost → seed.";
+
+  const defaultMetric = useMemo<Metric>(
+    () => ({
+      weightedPF: 0,
+      weightedPA: 0,
+      rawPF: 0,
+      rawPA: 0,
+      wins: 0,
+      losses: 0,
+      pdTotal: 0,
+      pdEntries: [],
+    }),
+    []
+  );
+
+  const sorted = useMemo(() => {
+    const active = players.filter((p) => !p.eliminatedAtRound);
+    const eliminated = players.filter((p) => p.eliminatedAtRound);
+
     const activeSorted = active.slice().sort((a, b) => {
-      const aw = weightedPF[a.id] || 0;
-      const bw = weightedPF[b.id] || 0;
-      if (bw !== aw) return bw - aw; // more weighted points first
-      const awa = weightedPA[a.id] || 0;
-      const bwa = weightedPA[b.id] || 0;
-      if (awa !== bwa) return awa - bwa; // fewer against next
-      return a.seed - b.seed; // then seed
+      const metricA = metrics[a.id] ?? defaultMetric;
+      const metricB = metrics[b.id] ?? defaultMetric;
+      if (metricB.weightedPF !== metricA.weightedPF) return metricB.weightedPF - metricA.weightedPF;
+      if (metricB.wins !== metricA.wins) return metricB.wins - metricA.wins;
+      if (metricB.pdTotal !== metricA.pdTotal) return metricB.pdTotal - metricA.pdTotal;
+      if (metricA.rawPA !== metricB.rawPA) return metricA.rawPA - metricB.rawPA;
+      return a.seed - b.seed;
     });
+
     const eliminatedSorted = eliminated
       .slice()
       .sort((a, b) => (a.lockedRank ?? Number.POSITIVE_INFINITY) - (b.lockedRank ?? Number.POSITIVE_INFINITY));
+
     return [...activeSorted, ...eliminatedSorted];
-  }, [players, rounds]);
+  }, [defaultMetric, metrics, players]);
 
   // Compute a tight content-based width for the Name column (in ch units)
   const nameColCh = useMemo(() => {
@@ -83,29 +166,45 @@ export default function Leaderboard() {
   const fmtPointsTooltip = (id: string, kind: "pf" | "pa") => {
     const s = perRoundStats[id];
     if (!s) return "";
-    return `R1: ${s[kind][1]}  ·  R2: ${s[kind][2]}  ·  R3: ${s[kind][3]}`;
+    return `R1: ${s[kind][1]} | R2: ${s[kind][2]} | R3: ${s[kind][3]}`;
   };
   const fmtWinsTooltip = (id: string) => {
     const s = perRoundStats[id];
     if (!s) return "";
-    return `R1: ${s.wins[1]}  ·  R2: ${s.wins[2]}  ·  R3: ${s.wins[3]}`;
+    return `R1: ${s.wins[1]} | R2: ${s.wins[2]} | R3: ${s.wins[3]}`;
   };
   const fmtLossesTooltip = (id: string) => {
     const s = perRoundStats[id];
     if (!s) return "";
-    return `R1: ${s.losses[1]}  ·  R2: ${s.losses[2]}  ·  R3: ${s.losses[3]}`;
+    return `R1: ${s.losses[1]} | R2: ${s.losses[2]} | R3: ${s.losses[3]}`;
   };
+  const fmtPdTooltip = (id: string) => {
+    const metric = metrics[id] ?? defaultMetric;
+    if (!metric.pdEntries.length) return "No point differential history yet.";
+    return metric.pdEntries.join("\n");
+  };
+
 
   return (
     <Card className="w-fit">
       <CardHeader className="flex items-center justify-between gap-3">
-        <CardTitle>Leaderboard</CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle>Leaderboard</CardTitle>
+          <button
+            type="button"
+            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-slate-300 text-xs font-semibold text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400"
+            title={rankingTooltip}
+            aria-label="Leaderboard ranking tiebreakers"
+          >
+            ?
+          </button>
+        </div>
         <Button variant="secondary" size="sm" onClick={() => setShowElo((v) => !v)}>
           {showElo ? "Hide Elo" : "Show Elo"}
         </Button>
       </CardHeader>
       <CardContent>
-        <div className="mb-2 text-xs text-slate-500">Score = weighted points (R1×1.0, R2×1.2, R3×1.4)</div>
+        <div className="mb-2 text-xs text-slate-500">{rankingDescription}</div>
         <div className="overflow-x-auto">
           <table className="w-fit text-sm border-collapse table-fixed">
             <thead>
@@ -115,6 +214,7 @@ export default function Leaderboard() {
                 <th className="py-1 px-1 w-14">Score</th>
                 <th className="py-1 px-1 w-14">Points Won</th>
                 <th className="py-1 px-1 w-14">Points Lost</th>
+                <th className="py-1 px-1 w-14">Point Diff</th>
                 <th className="py-1 px-1 w-10">Wins</th>
                 <th className="py-1 px-1 w-12">Losses</th>
                 {showElo && <th className="py-1 px-1 hidden md:table-cell w-24">Elo</th>}
@@ -125,12 +225,24 @@ export default function Leaderboard() {
                 const delta = (p.rating - (prevRatings.current[p.id] ?? p.rating)) || 0;
                 const greyClass = p.eliminatedAtRound ? "text-slate-400" : "";
                 const s = perRoundStats[p.id];
-                const pfWeighted = (s ? s.pf[1] * roundWeight[1] + s.pf[2] * roundWeight[2] + s.pf[3] * roundWeight[3] : 0);
-                const paWeighted = (s ? s.pa[1] * roundWeight[1] + s.pa[2] * roundWeight[2] + s.pa[3] * roundWeight[3] : 0);
-                const pfRaw = (s ? s.pf[1] + s.pf[2] + s.pf[3] : 0);
-                const paRaw = (s ? s.pa[1] + s.pa[2] + s.pa[3] : 0);
-                const winsTotal = s ? s.wins[1] + s.wins[2] + s.wins[3] : 0;
-                const lossesTotal = s ? s.losses[1] + s.losses[2] + s.losses[3] : 0;
+                const metric = metrics[p.id] ?? defaultMetric;
+                const pfWeighted = metric.weightedPF;
+                const pfRaw = metric.rawPF;
+                const paRaw = metric.rawPA;
+                const winsTotal = metric.wins;
+                const lossesTotal = metric.losses;
+                const pdTotal = metric.pdTotal;
+                const pdTooltip = fmtPdTooltip(p.id);
+                const scoreTooltipLines = [
+                  "Weighted points (R1 x1.0, R2 x1.2, R3 x1.4).",
+                ];
+                if (metric.pdEntries.length) {
+                  scoreTooltipLines.push("Point differential history (+/-8 cap):");
+                  scoreTooltipLines.push(...metric.pdEntries);
+                } else {
+                  scoreTooltipLines.push("Point differential history: no matches yet.");
+                }
+                const scoreTitle = scoreTooltipLines.join("\n");
                 const rowBgClass = showElo && !p.eliminatedAtRound && delta !== 0 ? (delta > 0 ? "bg-emerald-50" : "bg-rose-50") : "";
                 return (
                   <tr key={p.id} className={`border-t border-slate-200 ${rowBgClass}`}>
@@ -138,9 +250,10 @@ export default function Leaderboard() {
                     <td className={`py-1 px-1 ${greyClass} text-left whitespace-nowrap`} style={{ width: `${nameColCh}ch` }} title={p.name}>
                       {p.name} <span className="ml-1 text-xs text-slate-400">(#{p.seed})</span>
                     </td>
-                    <td className={`py-1 px-1 ${greyClass} text-center tabular-nums`} title="Weighted points (by round multipliers)">{Math.round(pfWeighted)}</td>
+                    <td className={`py-1 px-1 ${greyClass} text-center tabular-nums`} title={scoreTitle}>{Math.round(pfWeighted)}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtPointsTooltip(p.id, "pf")}>{pfRaw}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtPointsTooltip(p.id, "pa")}>{paRaw}</td>
+                    <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={pdTooltip}>{pdTotal}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtWinsTooltip(p.id)}>{winsTotal}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtLossesTooltip(p.id)}>{lossesTotal}</td>
                     {showElo && (
@@ -163,5 +276,15 @@ export default function Leaderboard() {
     </Card>
   );
 }
+
+
+
+
+
+
+
+
+
+
 
 

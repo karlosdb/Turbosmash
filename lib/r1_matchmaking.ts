@@ -1,4 +1,4 @@
-﻿export type PlayerLite = { id: string; name: string; seed: number };
+﻿export type PlayerLite = { id: string; name: string; seed: number; rank: number };
 export type Pair = [string, string];
 export type Match = { court: number; a: Pair; b: Pair; compromise?: "repeat-partner" };
 export type Wave = {
@@ -36,7 +36,7 @@ export function chunk<T>(arr: T[], size: number): T[][] {
 }
 
 export function wavesCountR1() {
-  return 3;
+  return 4;
 }
 
 type PairKey = string;
@@ -158,29 +158,108 @@ export function buildWave1(
 ): Wave {
   const resolved = resolveInternalOptions(options, waveIndex);
   const { playing, byes } = splitPlayingAndByes(players, N, resolved.byeCounts);
+
   const qSize = Math.ceil(playing.length / 4);
-  const Q1 = playing.slice(0, qSize);
-  const Q2 = playing.slice(qSize, 2 * qSize);
-  const Q3 = playing.slice(2 * qSize, 3 * qSize);
-  const Q4 = playing.slice(3 * qSize);
-  const pods: PlayerLite[][] = [];
-  for (let i = 0; i < qSize; i += 1) {
-    const a = Q1[i];
-    const b = Q2[i];
-    const c = Q3[i];
-    const d = Q4[i];
-    if (a && b && c && d) pods.push([a, b, c, d]);
+  const q1 = [...playing.slice(0, qSize)];
+  const q2 = [...playing.slice(qSize, 2 * qSize)];
+  const q3 = [...playing.slice(2 * qSize, 3 * qSize)];
+  const q4 = [...playing.slice(3 * qSize)];
+
+  type PodPlan = { players: PlayerLite[]; pairings: Pairing[] };
+  const pods: PodPlan[] = [];
+
+  const pushPod = (rawPlayers: Array<PlayerLite | undefined>, pairings: Pairing[]) => {
+    if (rawPlayers.length !== 4) return;
+    if (rawPlayers.some((p) => !p)) return;
+    pods.push({ players: rawPlayers as PlayerLite[], pairings });
+  };
+
+  while (q1.length >= 2 && q2.length >= 2) {
+    const a = q1.shift();
+    const b = q1.shift();
+    const c = q2.pop();
+    const d = q2.pop();
+    pushPod([a, b, c, d], [
+      [0, 2],
+      [1, 3],
+    ]);
   }
+
+  while (q1.length >= 1 && q2.length >= 1 && q3.length >= 2) {
+    const a = q1.shift();
+    const b = q2.shift();
+    const c = q3.shift();
+    const d = q3.shift();
+    pushPod([a, b, c, d], [
+      [0, 3],
+      [1, 2],
+    ]);
+  }
+
+  while (q2.length >= 2 && q3.length >= 2) {
+    const a = q2.shift();
+    const b = q2.shift();
+    const c = q3.pop();
+    const d = q3.pop();
+    pushPod([a, b, c, d], [
+      [0, 3],
+      [1, 2],
+    ]);
+  }
+
+  while (q3.length >= 2 && q4.length >= 2) {
+    const highC = q3.pop();
+    const highD = q4.pop();
+    const lowC = q3.shift();
+    const lowD = q4.shift();
+    pushPod([highC, highD, lowC, lowD], [
+      [0, 1],
+      [2, 3],
+    ]);
+  }
+
+  if (q3.length === 1 && q4.length >= 3) {
+    const a = q3.shift();
+    const b = q4.pop();
+    const c = q4.shift();
+    const d = q4.shift();
+    pushPod([a, b, c, d], [
+      [0, 1],
+      [2, 3],
+    ]);
+  }
+
+  while (q4.length >= 4) {
+    const a = q4.shift();
+    const b = q4.shift();
+    const c = q4.pop();
+    const d = q4.pop();
+    pushPod([a, b, c, d], [
+      [0, 3],
+      [1, 2],
+    ]);
+  }
+
+  const usedIds = new Set<string>();
+  pods.forEach((pod) => pod.players.forEach((p) => usedIds.add(p.id)));
+
+  const leftovers = playing.filter((p) => !usedIds.has(p.id));
+  chunk(leftovers, 4).forEach((group) => {
+    if (group.length === 4) {
+      pushPod(group as Array<PlayerLite | undefined>, [
+        [0, 3],
+        [1, 2],
+      ]);
+    }
+  });
+
   const matches: Match[] = [];
-  const pairings: Pairing[] = [
-    [0, 3],
-    [1, 2],
-  ];
   const partnerSet = new Set<string>();
-  pods.forEach((pod) => {
-    const { pairs, compromise } = resolvePod(pod, pairings, partnerSet);
+  pods.forEach(({ players: podPlayers, pairings }) => {
+    const { pairs, compromise } = resolvePod(podPlayers, pairings, partnerSet);
     matches.push(buildMatchFromPairs(pairs, matches.length + 1, compromise));
   });
+
   const wave: Wave = {
     index: 1,
     matches: assignCourts(matches, resolved.courts),
@@ -338,3 +417,4 @@ export function waveTeamScoresForMedian(wave: Wave, scoreLookup: (team: Pair) =>
   }
   return scores;
 }
+

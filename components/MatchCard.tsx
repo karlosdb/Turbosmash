@@ -114,19 +114,19 @@ export default function MatchCard({ matchId }: { matchId: string }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-center">
         <div className="space-y-1">
           <div className="font-medium">
-            {a1?.name} <span className="text-xs text-slate-500">(#{a1?.seed})</span>
+            {a1?.name} <span className="text-xs text-slate-500" title={`Seed #${a1?.seed}${typeof match.a1Rank === "number" ? ` · rank at scheduling r${match.a1Rank}` : ""}`}>(#{a1?.seed}{typeof match.a1Rank === "number" ? ` · r${match.a1Rank}` : ""})</span>
           </div>
           <div className="font-medium">
-            {a2?.name} <span className="text-xs text-slate-500">(#{a2?.seed})</span>
+            {a2?.name} <span className="text-xs text-slate-500" title={`Seed #${a2?.seed}${typeof match.a2Rank === "number" ? ` · rank at scheduling r${match.a2Rank}` : ""}`}>(#{a2?.seed}{typeof match.a2Rank === "number" ? ` · r${match.a2Rank}` : ""})</span>
           </div>
         </div>
         <div className="text-center text-slate-500">vs</div>
         <div className="space-y-1 sm:text-right">
           <div className="font-medium">
-            {b1?.name} <span className="text-xs text-slate-500">(#{b1?.seed})</span>
+            {b1?.name} <span className="text-xs text-slate-500" title={`Seed #${b1?.seed}${typeof match.b1Rank === "number" ? ` · rank at scheduling r${match.b1Rank}` : ""}`}>(#{b1?.seed}{typeof match.b1Rank === "number" ? ` · r${match.b1Rank}` : ""})</span>
           </div>
           <div className="font-medium">
-            {b2?.name} <span className="text-xs text-slate-500">(#{b2?.seed})</span>
+            {b2?.name} <span className="text-xs text-slate-500" title={`Seed #${b2?.seed}${typeof match.b2Rank === "number" ? ` · rank at scheduling r${match.b2Rank}` : ""}`}>(#{b2?.seed}{typeof match.b2Rank === "number" ? ` · r${match.b2Rank}` : ""})</span>
           </div>
         </div>
       </div>

@@ -27,6 +27,10 @@ export type Match = {
   a2: string;
   b1: string;
   b2: string;
+  a1Rank?: number;
+  a2Rank?: number;
+  b1Rank?: number;
+  b2Rank?: number;
   scoreA?: number;
   scoreB?: number;
   status: "scheduled" | "completed";
@@ -42,10 +46,13 @@ export type Round = {
   waveSizes?: number[];
 };
 
+export type R1WaveOrder = "explore-showdown-explore-showdown" | "explore-explore-showdown";
+
 export type SchedulePrefs = {
   courts: number;
   r1TargetGamesPerPlayer: number;
   r2TargetGamesPerPlayer: number;
+  r1WaveOrder: R1WaveOrder;
 };
 
 export type EventState = {
@@ -68,6 +75,7 @@ export function defaultSchedulePrefs(): SchedulePrefs {
     courts: 3,
     r1TargetGamesPerPlayer: 3,
     r2TargetGamesPerPlayer: 2,
+    r1WaveOrder: "explore-showdown-explore-showdown",
   };
 }
 
@@ -87,3 +95,6 @@ export function byId<T extends { id: string }>(items: T[]): Record<string, T> {
     return map;
   }, {});
 }
+
+
+

@@ -1,6 +1,21 @@
 import { Match, Player, Round, SchedulePrefs } from "./types";
-import { matchesNeeded, wavesNeeded } from "./scheduling";
+import { generateEightShowdown, generateExploratory } from "./waves";
 import { blended } from "./seeding";
+import { buildR1Wave, playablePlayersPerWave, PlayerLite as R1PlayerLite, Wave as R1Wave } from "./r1_matchmaking";
+
+type R1WaveKind = "intro-explore" | "explore" | "showdown";
+
+const R1_WAVE_SEQUENCES: Record<string, readonly R1WaveKind[]> = {
+  "explore-showdown-explore-showdown": ["intro-explore", "showdown", "explore", "showdown"],
+  "explore-explore-showdown": ["intro-explore", "explore", "showdown"],
+};
+
+const DEFAULT_R1_WAVE_ORDER = "explore-showdown-explore-showdown";
+
+export function r1WaveSequenceFromPrefs(prefs: SchedulePrefs): readonly R1WaveKind[] {
+  const order = prefs.r1WaveOrder ?? DEFAULT_R1_WAVE_ORDER;
+  return R1_WAVE_SEQUENCES[order] ?? R1_WAVE_SEQUENCES[DEFAULT_R1_WAVE_ORDER];
+}
 
 function uid(prefix: string = "m"): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-4)}`;
@@ -90,30 +105,6 @@ function selectPlayersForWave(players: Player[], count: number, beta: number) {
   return sorted.slice(0, count);
 }
 
-function computeWaveSizes(totalMatches: number, courts: number) {
-  if (totalMatches <= 0) return [];
-  const waves = Math.max(1, wavesNeeded(totalMatches, courts));
-  const base = Math.floor(totalMatches / waves);
-  const extra = totalMatches % waves;
-  const sizes: number[] = [];
-  for (let i = 0; i < waves; i++) {
-    let size = base + (i < extra ? 1 : 0);
-    size = Math.min(size, courts);
-    if (size <= 0) size = 1;
-    sizes.push(size);
-  }
-  let assigned = sizes.reduce((acc, v) => acc + v, 0);
-  let idx = sizes.length - 1;
-  while (assigned > totalMatches && idx >= 0) {
-    if (sizes[idx] > 1) {
-      sizes[idx] -= 1;
-      assigned -= 1;
-    } else {
-      idx -= 1;
-    }
-  }
-  return sizes.filter((s) => s > 0);
-}
 
 
 
@@ -370,7 +361,7 @@ function createAdaptiveWaveMatches(players: Player[], waveIndex: number, history
   });
 }
 
-// Deterministic group partitioning by seed into chunks of 8–12
+// Deterministic group partitioning by seed into chunks of 8-12
 function partitionIntoGroupsBySeed(players: Player[]): Player[][] {
   const sorted = [...players].sort((a, b) => a.seed - b.seed);
   const N = sorted.length;
@@ -391,7 +382,7 @@ function partitionIntoGroupsBySeed(players: Player[]): Player[][] {
     } else if (remaining % 8 === 0) {
       size = 8;
     } else {
-      // Greedy: pick the largest that leaves 8–12 remainder
+      // Greedy: pick the largest that leaves 8-12 remainder
       if ((remaining - 12) >= 8) size = 12; else if ((remaining - 10) >= 8) size = 10; else size = 8;
     }
     groups.push(sorted.slice(idx, idx + size));
@@ -401,15 +392,120 @@ function partitionIntoGroupsBySeed(players: Player[]): Player[][] {
 }
 
 export function prepareRound1(players: Player[], prefs: SchedulePrefs): Round {
-  // We still use waves UI, but matches will be appended deterministically per group when wave advances
-  const totalMatches = matchesNeeded(players.length, 1);
-  const derivedCourts = Math.max(1, Math.floor(players.length / 4));
-  const waveSizes = computeWaveSizes(totalMatches, derivedCourts);
-  return { index: 1, matches: [], status: "active", currentWave: 0, totalWaves: waveSizes.length, waveSizes };
+  const sequence = r1WaveSequenceFromPrefs(prefs);
+  const totalWaves = sequence.length;
+  const playable = playablePlayersPerWave(players.length);
+  const matchesPerWave = Math.max(1, Math.floor(Math.max(playable, 4) / 4));
+  const waveSizes = sequence.map(() => matchesPerWave);
+  return { index: 1, matches: [], status: "active", currentWave: 0, totalWaves, waveSizes };
 }
 
-// Desktop deterministic: within each group of 8–12, pair (1&3 vs 2&4), (5&7 vs 6&8), and for 12 add (9&11 vs 10&12)
+function makePairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function collectPriorPartnerKeys(matches: Match[]): Set<string> {
+  const set = new Set<string>();
+  for (const match of matches) {
+    set.add(makePairKey(match.a1, match.a2));
+    set.add(makePairKey(match.b1, match.b2));
+  }
+  return set;
+}
+
+function snapshotPreviousWaves(players: Player[], round: Round, upToWave: number): R1Wave[] {
+  const allIds = players.map((p) => p.id);
+  const waves: R1Wave[] = [];
+  for (let wave = 1; wave < upToWave; wave++) {
+    const matches = round.matches.filter((m) => m.miniRoundIndex === wave);
+    if (matches.length === 0) continue;
+    const converted = matches.map((m) => ({
+      court: m.court,
+      a: [m.a1, m.a2] as [string, string],
+      b: [m.b1, m.b2] as [string, string],
+      compromise: m.compromise === "repeat-partner" ? "repeat-partner" : undefined,
+    }));
+    const played = new Set<string>();
+    matches.forEach((m) => {
+      played.add(m.a1);
+      played.add(m.a2);
+      played.add(m.b1);
+      played.add(m.b2);
+    });
+    const byes = allIds.filter((id) => !played.has(id));
+    const snapshot: R1Wave = {
+      index: wave as 1 | 2 | 3,
+      matches: converted,
+    };
+    if (byes.length) {
+      snapshot.byes = byes;
+      snapshot.byeCreditRule = "median-team-points";
+    }
+    waves.push(snapshot);
+  }
+  return waves;
+}
+
+function playersForWaveOrdering(players: Player[], waveIndex: number, round: Round): R1PlayerLite[] {
+  // Wave 1: deterministic by seed
+  if (waveIndex === 1) {
+    const bySeed = [...players].sort((a, b) => a.seed - b.seed);
+    return bySeed.map((p, idx) => ({ id: p.id, name: p.name, seed: p.seed, rank: idx + 1 }));
+  }
+
+  // Waves 2+ within Round 1: align with leaderboard ordering rules
+  // Score = weighted points; in R1, weight = 1.0 so raw points, but keep structure for consistency
+  type Metric = {
+    weightedPF: number;
+    rawPA: number;
+    wins: number;
+    pdTotal: number; // capped to +/-8 per game
+  };
+
+  const metrics = new Map<string, Metric>();
+  const ensure = (id: string): Metric => {
+    const existing = metrics.get(id);
+    if (existing) return existing;
+    const init: Metric = { weightedPF: 0, rawPA: 0, wins: 0, pdTotal: 0 };
+    metrics.set(id, init);
+    return init;
+  };
+
+  for (const m of round.matches) {
+    if (m.status !== "completed") continue;
+    if (m.roundIndex !== 1) continue; // Only R1 should influence R1 wave ordering
+    const scoreA = m.scoreA ?? 0;
+    const scoreB = m.scoreB ?? 0;
+    const diffA = scoreA - scoreB;
+    const diffB = -diffA;
+    const cap = (d: number) => Math.max(-8, Math.min(8, d));
+
+    const aWon = diffA > 0;
+    // Side A players
+    const a1 = ensure(m.a1); a1.weightedPF += scoreA; a1.rawPA += scoreB; a1.pdTotal += cap(diffA); if (aWon) a1.wins += 1;
+    const a2 = ensure(m.a2); a2.weightedPF += scoreA; a2.rawPA += scoreB; a2.pdTotal += cap(diffA); if (aWon) a2.wins += 1;
+    // Side B players
+    const b1 = ensure(m.b1); b1.weightedPF += scoreB; b1.rawPA += scoreA; b1.pdTotal += cap(diffB); if (!aWon) b1.wins += 1;
+    const b2 = ensure(m.b2); b2.weightedPF += scoreB; b2.rawPA += scoreA; b2.pdTotal += cap(diffB); if (!aWon) b2.wins += 1;
+  }
+
+  const sorted = [...players].sort((a, b) => {
+    const ma = metrics.get(a.id) ?? { weightedPF: 0, rawPA: 0, wins: 0, pdTotal: 0 };
+    const mb = metrics.get(b.id) ?? { weightedPF: 0, rawPA: 0, wins: 0, pdTotal: 0 };
+    if (mb.weightedPF !== ma.weightedPF) return mb.weightedPF - ma.weightedPF;
+    if (mb.wins !== ma.wins) return mb.wins - ma.wins;
+    if (mb.pdTotal !== ma.pdTotal) return mb.pdTotal - ma.pdTotal;
+    if (ma.rawPA !== mb.rawPA) return ma.rawPA - mb.rawPA; // lower PA is better
+    return a.seed - b.seed;
+  });
+
+  return sorted.map((p, idx) => ({ id: p.id, name: p.name, seed: p.seed, rank: idx + 1 }));
+}
+
+// Desktop deterministic: within each group of 8-12, pair (1&3 vs 2&4), (5&7 vs 6&8), and for 12 add (9&11 vs 10&12)
 function createDeterministicGroupMatches(group: Player[], groupIndex: number, phase: 1 | 2, waveIndex: number): Match[] {
+  // Rank within this deterministic group at scheduling time (1-based)
+  const groupRank = new Map<string, number>(group.map((p, idx) => [p.id, idx + 1]));
   // Determine bench count per wave for group sizes > 8
   const size = group.length;
   let benchCount = 0;
@@ -439,6 +535,10 @@ function createDeterministicGroupMatches(group: Player[], groupIndex: number, ph
     court: courtOffset,
     groupIndex,
     a1: ids[a1], a2: ids[a2], b1: ids[b1], b2: ids[b2],
+    a1Rank: groupRank.get(ids[a1]),
+    a2Rank: groupRank.get(ids[a2]),
+    b1Rank: groupRank.get(ids[b1]),
+    b2Rank: groupRank.get(ids[b2]),
     status: "scheduled" as const,
   });
   if (ids.length >= 8) {
@@ -471,36 +571,105 @@ export function generateR1Wave(
   waveIndex: number,
   players: Player[],
   round: Round,
-  priorRounds: Round[]
+  _priorRounds: Round[],
+  prefs: SchedulePrefs
 ): { matches: Match[]; benched: Player[] } {
-  const waveSize = round.waveSizes?.[waveIndex - 1] ?? 0;
-  if (waveSize <= 0) return { matches: [], benched: [] };
-  const groups = partitionIntoGroupsBySeed(players);
-  const matches: Match[] = [];
-  let courtCounter = 1;
-  for (let gi = 0; gi < groups.length; gi++) {
-    const group = groups[gi];
-    // Re-rank inside group by current point differential before subsequent waves
-    let groupSorted = [...group];
-    if (waveIndex > 1) {
-      const pd = pointsDiffMapFromMatches(round.matches);
-      groupSorted.sort((a, b) => (pd[b.id] ?? 0) - (pd[a.id] ?? 0) || a.seed - b.seed);
-    }
-    const ms = createDeterministicGroupMatches(groupSorted, gi + 1, 1, waveIndex);
-    ms.forEach((m) => { m.court = courtCounter++; });
-    matches.push(...ms);
+  const sequence = r1WaveSequenceFromPrefs(prefs);
+  const totalWaves = sequence.length;
+  if (waveIndex < 1 || waveIndex > totalWaves) return { matches: [], benched: [] };
+
+  const waveKind = sequence[waveIndex - 1];
+  const playerOrder = playersForWaveOrdering(players, waveIndex, round);
+  const priorPartners = collectPriorPartnerKeys(round.matches);
+  const previousWaves = snapshotPreviousWaves(players, round, waveIndex);
+  const courtsHint = round.waveSizes?.[waveIndex - 1] ?? Math.max(1, Math.floor(Math.max(playablePlayersPerWave(players.length), 4) / 4));
+  const rankLookup = new Map(playerOrder.map((p) => [p.id, p.rank]));
+
+  let matches: Match[];
+  if (waveKind === "showdown") {
+    // Showdown: two-band snakes over the whole cohort ordered by current ranks
+    const cfg = { BAND_SIZE: 4, PARTNER_GAP_CAP: 5 };
+    const wavePlayers = playerOrder.map((p) => ({ id: p.id, seed: p.rank }));
+    const generated = generateEightShowdown(wavePlayers, cfg);
+    matches = generated.map((gm, idx) => ({
+      id: uid(`r1w${waveIndex}`),
+      roundIndex: 1,
+      miniRoundIndex: waveIndex,
+      court: ((idx % courtsHint) + 1),
+      a1: gm.teamA[0].id,
+      a2: gm.teamA[1].id,
+      b1: gm.teamB[0].id,
+      b2: gm.teamB[1].id,
+      a1Rank: rankLookup.get(gm.teamA[0].id),
+      a2Rank: rankLookup.get(gm.teamA[1].id),
+      b1Rank: rankLookup.get(gm.teamB[0].id),
+      b2Rank: rankLookup.get(gm.teamB[1].id),
+      status: "scheduled",
+    }));
+  } else if (waveKind === "explore") {
+    // Exploratory wave: snake pairings across the cohort using current ranks
+    const cfg = { BAND_SIZE: 4, PARTNER_GAP_CAP: 5 };
+    const wavePlayers = playerOrder.map((p) => ({ id: p.id, seed: p.rank }));
+    const generated = generateExploratory(wavePlayers, cfg);
+    matches = generated.map((gm, idx) => ({
+      id: uid(`r1w${waveIndex}`),
+      roundIndex: 1,
+      miniRoundIndex: waveIndex,
+      court: ((idx % courtsHint) + 1),
+      a1: gm.teamA[0].id,
+      a2: gm.teamA[1].id,
+      b1: gm.teamB[0].id,
+      b2: gm.teamB[1].id,
+      a1Rank: rankLookup.get(gm.teamA[0].id),
+      a2Rank: rankLookup.get(gm.teamA[1].id),
+      b1Rank: rankLookup.get(gm.teamB[0].id),
+      b2Rank: rankLookup.get(gm.teamB[1].id),
+      status: "scheduled",
+    }));
+  } else {
+    const wave = buildR1Wave(waveIndex as 1 | 2 | 3, playerOrder, players.length, priorPartners, {
+      courts: courtsHint,
+      previousWaves,
+    });
+    matches = wave.matches.map((match, idx) => {
+      const scheduled: Match = {
+        id: uid(`r1w${waveIndex}`),
+        roundIndex: 1,
+        miniRoundIndex: waveIndex,
+        court: match.court ?? ((idx % courtsHint) + 1),
+        a1: match.a[0],
+        a2: match.a[1],
+        b1: match.b[0],
+        b2: match.b[1],
+        a1Rank: rankLookup.get(match.a[0]),
+        a2Rank: rankLookup.get(match.a[1]),
+        b1Rank: rankLookup.get(match.b[0]),
+        b2Rank: rankLookup.get(match.b[1]),
+        status: "scheduled",
+      };
+      if (match.compromise) scheduled.compromise = match.compromise;
+      return scheduled;
+    });
   }
-  // Limit to available courts in this wave
-  const limited = matches.slice(0, waveSize);
-  const usedIds = new Set<string>();
-  limited.forEach((m) => { usedIds.add(m.a1); usedIds.add(m.a2); usedIds.add(m.b1); usedIds.add(m.b2); });
-  const benched = players.filter((p) => !usedIds.has(p.id));
-  return { matches: limited, benched };
+
+  const playingIds = new Set<string>();
+  matches.forEach((m) => {
+    playingIds.add(m.a1);
+    playingIds.add(m.a2);
+    playingIds.add(m.b1);
+    playingIds.add(m.b2);
+  });
+
+  const benched = players.filter((p) => !playingIds.has(p.id));
+  return { matches, benched };
 }
+
 
 function generateFinalFour(players: Player[]): Match[] {
   if (players.length !== 4) return [];
   const sorted = [...players].sort((a, b) => a.seed - b.seed);
+  // Rank within Final Four seeding order at scheduling time
+  const ffRank = new Map<string, number>(sorted.map((p, idx) => [p.id, idx + 1]));
   const combos: [[Player, Player], [Player, Player]][] = [
     [[sorted[0], sorted[1]], [sorted[2], sorted[3]]],
     [[sorted[0], sorted[2]], [sorted[1], sorted[3]]],
@@ -515,6 +684,10 @@ function generateFinalFour(players: Player[]): Match[] {
     a2: teams[0][1].id,
     b1: teams[1][0].id,
     b2: teams[1][1].id,
+    a1Rank: ffRank.get(teams[0][0].id),
+    a2Rank: ffRank.get(teams[0][1].id),
+    b1Rank: ffRank.get(teams[1][0].id),
+    b2Rank: ffRank.get(teams[1][1].id),
     status: "scheduled",
   }));
 }
@@ -546,6 +719,8 @@ export function generateLaterRound(
   }
   return [];
 }
+
+
 
 
 
