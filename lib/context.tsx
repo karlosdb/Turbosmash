@@ -31,6 +31,7 @@ type EventContextShape = {
   // matches
   submitScore: (matchId: string, scoreA: number, scoreB: number) => void;
   advanceR1Wave: () => void;
+  advanceR2Wave: () => void;
 
   // prefs
   updateSchedulePrefs: (patch: Partial<SchedulePrefs>) => void;
@@ -132,7 +133,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       if (!r1 || r1.status !== "active") return s;
       const nextWave = (r1.currentWave ?? 0) + 1;
       if ((r1.totalWaves ?? 0) > 0 && nextWave > (r1.totalWaves ?? 0)) return s;
-      const { matches, benched } = generateR1Wave(nextWave, s.players, r1, []);
+      const { matches, benched } = generateR1Wave(nextWave, s.players, r1, [], s.schedulePrefs);
       const benchedSet = new Set(benched.map((p) => p.id));
       const updatedPlayers = s.players.map((p) => ({ ...p, lastPlayedAt: benchedSet.has(p.id) ? p.lastPlayedAt : Date.now() }));
       const updatedR1: Round = {
@@ -141,6 +142,45 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         matches: [...r1.matches, ...matches],
       };
       const nextRounds = s.rounds.map((r) => (r.index === 1 ? updatedR1 : r));
+      return { ...s, players: updatedPlayers, rounds: nextRounds };
+    });
+  }, []);
+
+  const advanceR2Wave = useCallback(() => {
+    setState((s) => {
+      const r2 = s.rounds.find((r) => r.index === 2);
+      if (!r2 || r2.status !== "active") return s;
+      const currentWave = r2.currentWave ?? 1;
+      if (currentWave >= 2) return s; // Round 2 only has 2 waves
+
+      // Get survivors (players not eliminated)
+      const survivors = s.players.filter((p) => !p.eliminatedAtRound);
+      const r1 = s.rounds.find((r) => r.index === 1);
+      if (!r1) return s;
+
+      // Generate Wave 2 (showdown) using current standings after Wave 1
+      const newMatches = generateLaterRound(survivors, [r1, r2], 2, { upToWave: 2 });
+      const wave2Matches = newMatches.filter((m) => m.miniRoundIndex === 2);
+
+      // Update players lastPlayedAt for those playing in Wave 2
+      const playingIds = new Set<string>();
+      wave2Matches.forEach((m) => {
+        playingIds.add(m.a1);
+        playingIds.add(m.a2);
+        playingIds.add(m.b1);
+        playingIds.add(m.b2);
+      });
+      const updatedPlayers = s.players.map((p) => ({
+        ...p,
+        lastPlayedAt: playingIds.has(p.id) ? Date.now() : p.lastPlayedAt
+      }));
+
+      const updatedR2: Round = {
+        ...r2,
+        currentWave: 2,
+        matches: [...r2.matches, ...wave2Matches],
+      };
+      const nextRounds = s.rounds.map((r) => (r.index === 2 ? updatedR2 : r));
       return { ...s, players: updatedPlayers, rounds: nextRounds };
     });
   }, []);
@@ -162,8 +202,8 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       }));
       const survivors = nextPlayers.filter((p) => keepSet.has(p.id));
       // Re-seed survivors by round-1 point differential, maintaining deterministic structure
-      const r2Matches = generateLaterRound(survivors, [r1Closed], 2, s.schedulePrefs.courts);
-      const r2: Round = { index: 2, matches: r2Matches, status: "active" };
+      const r2Matches = generateLaterRound(survivors, [r1Closed], 2, { upToWave: 1 });
+      const r2: Round = { index: 2, matches: r2Matches, status: "active", currentWave: 1, totalWaves: 2 };
       const nextRounds = [r1Closed, r2];
       return { ...s, players: nextPlayers, rounds: nextRounds, currentRound: 2 };
     });
@@ -199,12 +239,8 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       const completed = r3.matches.filter((m) => m.status === "completed").length;
       if (completed < planned) return s;
       const r3Closed: Round = { ...r3, status: "closed" };
-      const ranked = rankPlayers(s.players, s.rounds);
-      const lockedRank: Record<string, number> = {};
-      ranked.forEach((p, idx) => (lockedRank[p.id] = idx + 1));
-      const nextPlayers = s.players.map((p) => ({ ...p, lockedRank: lockedRank[p.id] }));
       const nextRounds = s.rounds.map((r) => (r.index === 3 ? r3Closed : r));
-      return { ...s, players: nextPlayers, rounds: nextRounds };
+      return { ...s, rounds: nextRounds };
     });
   }, []);
 
@@ -388,6 +424,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     closeEvent,
     submitScore,
     advanceR1Wave,
+    advanceR2Wave,
     updateSchedulePrefs,
     exportJSON,
     importJSON,
@@ -396,7 +433,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     demo12,
     exportRatingsJSON,
     exportAnalysisCSV,
-  }), [players, rounds, currentRound, schedulePrefs, r1Signature, initialRatingsById, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceR1Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo12, exportRatingsJSON, exportAnalysisCSV]);
+  }), [players, rounds, currentRound, schedulePrefs, r1Signature, initialRatingsById, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceR1Wave, advanceR2Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo12, exportRatingsJSON, exportAnalysisCSV]);
 
   return <EventContext.Provider value={value}>{children}</EventContext.Provider>;
 }

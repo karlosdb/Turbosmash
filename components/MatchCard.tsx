@@ -19,7 +19,7 @@ const compromiseStyles: Record<string, string> = {
   "rating-gap": "bg-rose-100 text-rose-700 ring-rose-200",
 };
 
-export default function MatchCard({ matchId }: { matchId: string }) {
+export default function MatchCard({ matchId, readonly = false }: { matchId: string; readonly?: boolean }) {
   const { rounds, players, submitScore } = useEvent();
   const match = useMemo(() => rounds.flatMap((r) => r.matches).find((m) => m.id === matchId), [rounds, matchId]);
   const byId = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players]);
@@ -39,7 +39,7 @@ export default function MatchCard({ matchId }: { matchId: string }) {
   const b1 = match ? byId[match.b1] : undefined;
   const b2 = match ? byId[match.b2] : undefined;
 
-  const roundTarget = match && match.roundIndex === 1 ? 21 : 15;
+  const roundTarget = match && match.roundIndex === 1 ? 15 : 11;
   const waveLabel = match && match.roundIndex === 1 && match.miniRoundIndex ? `Wave ${match.miniRoundIndex}` : null;
   const compromiseLabel = match?.compromise ? compromiseLabels[match.compromise] ?? "" : "";
   const compromiseClass = match?.compromise ? compromiseStyles[match.compromise] ?? "" : "";
@@ -139,19 +139,25 @@ export default function MatchCard({ matchId }: { matchId: string }) {
             onChange={(e) => setScoreA(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && buttonEnabled) onSave();
+              if (e.key === "Enter" && buttonEnabled && !readonly) onSave();
             }}
             min={0}
             max={maxLosing}
             aria-invalid={isLosingInvalid}
+            disabled={readonly}
             className={`w-24 ${isLosingInvalid ? "border-rose-400 bg-rose-50 focus-visible:ring-rose-500" : ""}`}
           />
         ) : winner === "A" ? (
           <button
             type="button"
-            onClick={() => setWinner(null)}
-            title="Click to change winner"
-            className="flex h-10 w-24 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+            onClick={() => !readonly && setWinner(null)}
+            title={readonly ? "Match locked" : "Click to change winner"}
+            disabled={readonly}
+            className={`flex h-10 w-24 items-center justify-center rounded-xl border text-sm font-semibold ${
+              readonly
+                ? "border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            }`}
           >
             {scoreA || String(roundTarget)}
           </button>
@@ -160,6 +166,7 @@ export default function MatchCard({ matchId }: { matchId: string }) {
             variant="secondary"
             className="w-24 bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700"
             onClick={() => selectWinner("A")}
+            disabled={readonly}
           >
             Winner
           </Button>
@@ -175,8 +182,9 @@ export default function MatchCard({ matchId }: { matchId: string }) {
             onChange={(e) => setScoreB(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && buttonEnabled) onSave();
+              if (e.key === "Enter" && buttonEnabled && !readonly) onSave();
             }}
+            disabled={readonly}
             min={0}
             max={maxLosing}
             aria-invalid={isLosingInvalid}
@@ -185,9 +193,14 @@ export default function MatchCard({ matchId }: { matchId: string }) {
         ) : winner === "B" ? (
           <button
             type="button"
-            onClick={() => setWinner(null)}
-            title="Click to change winner"
-            className="flex h-10 w-24 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+            onClick={() => !readonly && setWinner(null)}
+            title={readonly ? "Match locked" : "Click to change winner"}
+            disabled={readonly}
+            className={`flex h-10 w-24 items-center justify-center rounded-xl border text-sm font-semibold ${
+              readonly
+                ? "border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            }`}
           >
             {scoreB || String(roundTarget)}
           </button>
@@ -196,12 +209,13 @@ export default function MatchCard({ matchId }: { matchId: string }) {
             variant="secondary"
             className="w-24 bg-slate-100 text-slate-600 hover:bg-emerald-100 hover:text-emerald-700"
             onClick={() => selectWinner("B")}
+            disabled={readonly}
           >
             Winner
           </Button>
         )}
 
-        <Button onClick={onSave} className="ml-auto" disabled={!buttonEnabled}>
+        <Button onClick={onSave} className="ml-auto" disabled={!buttonEnabled || readonly}>
           {match.status === "completed" ? "Update" : "Save"}
         </Button>
       </div>

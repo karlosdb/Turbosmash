@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:*)",
+      "Bash(node:*)",
+      "Bash(npx tsx:*)",
+      "Bash(del debug_exploratory.js)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -3,11 +3,11 @@ import { generateEightShowdown, generateExploratory } from "./waves";
 import { blended } from "./seeding";
 import { buildR1Wave, playablePlayersPerWave, PlayerLite as R1PlayerLite, Wave as R1Wave } from "./r1_matchmaking";
 
-type R1WaveKind = "intro-explore" | "explore" | "showdown";
+type R1WaveKind = "explore" | "showdown";
 
 const R1_WAVE_SEQUENCES: Record<string, readonly R1WaveKind[]> = {
-  "explore-showdown-explore-showdown": ["intro-explore", "showdown", "explore", "showdown"],
-  "explore-explore-showdown": ["intro-explore", "explore", "showdown"],
+  "explore-showdown-explore-showdown": ["explore", "showdown", "explore", "showdown"],
+  "explore-explore-showdown": ["explore", "explore", "showdown"],
 };
 
 const DEFAULT_R1_WAVE_ORDER = "explore-showdown-explore-showdown";
@@ -696,36 +696,79 @@ export function generateLaterRound(
   players: Player[],
   priorRounds: Round[],
   roundIndex: 2 | 3,
-  courts: number
+  options?: { upToWave?: number }
 ): Match[] {
   if (roundIndex === 3 && players.length === 4) {
     return generateFinalFour(players);
   }
   if (roundIndex === 2) {
-    // Deterministic per-group same pattern using survivors ranked by point differential within each group
-    const groups = partitionIntoGroupsBySeed(players).map((group) => {
-      const pd = pointsDiffMapFromMatches(priorRounds.flatMap((r) => r.matches));
-      return [...group].sort((a, b) => (pd[b.id] ?? 0) - (pd[a.id] ?? 0) || a.seed - b.seed);
-    });
+    const pd = pointsDiffMapFromMatches(priorRounds.flatMap((r) => r.matches));
+    const groups = partitionIntoGroupsBySeed(players).map((group) =>
+      [...group].sort((a, b) => (pd[b.id] ?? 0) - (pd[a.id] ?? 0) || a.seed - b.seed)
+    );
+
     const matches: Match[] = [];
+    const inferredCourtCount = Math.max(1, Math.floor(players.length / 4));
     let courtCounter = 1;
+    const includeWave1 = (options?.upToWave ?? 2) >= 1;
+    const includeWave2 = (options?.upToWave ?? 2) >= 2;
+
     for (let gi = 0; gi < groups.length; gi++) {
       const group = groups[gi];
-      const ms = createDeterministicGroupMatches(group, gi + 1, 2, 1);
-      ms.forEach((m) => { m.court = ((courtCounter - 1) % Math.max(1, courts)) + 1; courtCounter++; });
-      matches.push(...ms);
+      if (!group.length) continue;
+      const rankLookup = new Map(group.map((p, idx) => [p.id, idx + 1]));
+      const partnerGapCap = Math.max(5, group.length);
+      const cfg = { BAND_SIZE: 4, PARTNER_GAP_CAP: partnerGapCap };
+      const wavePlayers = group.map((p, idx) => ({ id: p.id, seed: idx + 1 }));
+
+      if (includeWave1) {
+        const exploratoryWave = generateExploratory(wavePlayers, cfg);
+        exploratoryWave.forEach((gm) => {
+          matches.push({
+            id: uid('r2w1'),
+            roundIndex: 2,
+            miniRoundIndex: 1,
+            court: ((courtCounter - 1) % inferredCourtCount) + 1,
+            groupIndex: gi + 1,
+            a1: gm.teamA[0].id,
+            a2: gm.teamA[1].id,
+            b1: gm.teamB[0].id,
+            b2: gm.teamB[1].id,
+            a1Rank: rankLookup.get(gm.teamA[0].id),
+            a2Rank: rankLookup.get(gm.teamA[1].id),
+            b1Rank: rankLookup.get(gm.teamB[0].id),
+            b2Rank: rankLookup.get(gm.teamB[1].id),
+            status: 'scheduled',
+          });
+          courtCounter += 1;
+        });
+      }
+
+      if (includeWave2) {
+        const showdownWave = generateEightShowdown(wavePlayers, cfg);
+        showdownWave.forEach((gm) => {
+          matches.push({
+            id: uid('r2w2'),
+            roundIndex: 2,
+            miniRoundIndex: 2,
+            court: ((courtCounter - 1) % inferredCourtCount) + 1,
+            groupIndex: gi + 1,
+            a1: gm.teamA[0].id,
+            a2: gm.teamA[1].id,
+            b1: gm.teamB[0].id,
+            b2: gm.teamB[1].id,
+            a1Rank: rankLookup.get(gm.teamA[0].id),
+            a2Rank: rankLookup.get(gm.teamA[1].id),
+            b1Rank: rankLookup.get(gm.teamB[0].id),
+            b2Rank: rankLookup.get(gm.teamB[1].id),
+            status: 'scheduled',
+          });
+          courtCounter += 1;
+        });
+      }
     }
+
     return matches;
   }
   return [];
 }
-
-
-
-
-
-
-
-
-
-

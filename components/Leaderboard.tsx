@@ -137,9 +137,13 @@ export default function Leaderboard() {
 
   // Compute a tight content-based width for the Name column (in ch units)
   const nameColCh = useMemo(() => {
-    const maxLen = players.reduce((m, p) => Math.max(m, (p.name || "").length), 0);
-    // Add a tiny breathing room so the text is not flush against the next column
-    return Math.max(3, maxLen + 1);
+    const maxLen = players.reduce((m, p) => {
+      const nameLen = (p.name || "").length;
+      const seedLen = ` (#${p.seed})`.length; // Account for seed display like " (#12)"
+      return Math.max(m, nameLen + seedLen);
+    }, 0);
+    // Add breathing room so the text is not flush against the next column
+    return Math.max(3, maxLen + 2);
   }, [players]);
 
   // Build per-round stats for tooltips
@@ -250,7 +254,7 @@ export default function Leaderboard() {
                     <td className={`py-1 px-1 ${greyClass} text-left whitespace-nowrap`} style={{ width: `${nameColCh}ch` }} title={p.name}>
                       {p.name} <span className="ml-1 text-xs text-slate-400">(#{p.seed})</span>
                     </td>
-                    <td className={`py-1 px-1 ${greyClass} text-center tabular-nums`} title={scoreTitle}>{Math.round(pfWeighted)}</td>
+                    <td className={`py-1 px-1 ${greyClass} text-center tabular-nums`} title={scoreTitle}>{pfWeighted % 1 === 0 ? pfWeighted : pfWeighted.toFixed(1)}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtPointsTooltip(p.id, "pf")}>{pfRaw}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={fmtPointsTooltip(p.id, "pa")}>{paRaw}</td>
                     <td className={`py-1 px-1 ${greyClass} text-center tabular-nums cursor-help hover:underline focus:underline decoration-dotted underline-offset-2`} title={pdTooltip}>{pdTotal}</td>

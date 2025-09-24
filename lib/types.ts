@@ -49,7 +49,9 @@ export type Round = {
 export type R1WaveOrder = "explore-showdown-explore-showdown" | "explore-explore-showdown";
 
 export type SchedulePrefs = {
-  courts: number;
+  r1ScoreCap: number;
+  r2ScoreCap: number;
+  r3ScoreCap: number;
   r1TargetGamesPerPlayer: number;
   r2TargetGamesPerPlayer: number;
   r1WaveOrder: R1WaveOrder;
@@ -72,7 +74,9 @@ export type Id = string;
 
 export function defaultSchedulePrefs(): SchedulePrefs {
   return {
-    courts: 3,
+    r1ScoreCap: 15,
+    r2ScoreCap: 11,
+    r3ScoreCap: 11,
     r1TargetGamesPerPlayer: 3,
     r2TargetGamesPerPlayer: 2,
     r1WaveOrder: "explore-showdown-explore-showdown",
