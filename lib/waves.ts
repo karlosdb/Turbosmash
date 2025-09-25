@@ -17,7 +17,10 @@ export function chunkAscending<T>(items: T[], size: number): T[][] {
 }
 
 export function mk(a: Player, b: Player, c: Player, d: Player, type: Match["type"]): Match {
-  return { teamA: [a, b], teamB: [c, d], type };
+  // Sort each team so higher rank (lower seed number) comes first
+  const teamA = a.seed <= b.seed ? [a, b] : [b, a];
+  const teamB = c.seed <= d.seed ? [c, d] : [d, c];
+  return { teamA: teamA as Team, teamB: teamB as Team, type };
 }
 
 // Adjacent-band "safe snakes" for two bands A,B (each length = BAND_SIZE, sorted)
@@ -79,8 +82,7 @@ export function assertGlobal(matches: Match[], allPlayers: Player[], _cfg: Cfg):
 
 export function generateExploratory(players: Player[], cfg: Cfg): Match[] {
   if (players.length % 4 !== 0) throw new Error("exploratory requires N % 4 = 0");
-  const sorted = players.slice().sort(bySeed);
-  const bands = chunkAscending(sorted, cfg.BAND_SIZE);
+  const bands = chunkAscending(players, cfg.BAND_SIZE);
   const out: Match[] = [];
   for (let i = 0; i < bands.length; i += 2) {
     const A = bands[i];
@@ -88,28 +90,13 @@ export function generateExploratory(players: Player[], cfg: Cfg): Match[] {
     if (B) out.push(...snakesTwoBands(A, B, "exploratory"));
     else out.push(snakeOneBand(A, "exploratory"));
   }
-  assertWave(out, sorted, cfg);
+  assertWave(out, players, cfg);
   return out;
 }
 
-export function generateEightShowdown(players: Player[], cfg: Cfg): Match[] {
-  if (players.length % 4 !== 0) throw new Error("eight showdown requires N % 4 = 0");
-  const sorted = players.slice().sort(bySeed);
-  const bands = chunkAscending(sorted, cfg.BAND_SIZE);
-  if (bands.length < 2) throw new Error("eight showdown requires at least 2 bands (8 players)");
-  const bottomB = bands[bands.length - 1];
-  const bottomA = bands[bands.length - 2];
-  const bottom8Matches = snakesTwoBands(bottomA, bottomB, "eight");
-  const above = sorted.slice(0, sorted.length - 2 * cfg.BAND_SIZE);
-  const restMatches = above.length > 0 ? generateExploratory(above, cfg) : [];
-  const merged = [...bottom8Matches, ...restMatches];
-  assertWave(merged, sorted, cfg);
-  return merged;
-}
 
 export const registry: Record<WaveType, WaveGen> = {
   exploratory: generateExploratory,
-  eight: generateEightShowdown,
 };
 
 export function generateWave(type: WaveType, players: Player[], cfg: Cfg): Match[] {
@@ -127,11 +114,15 @@ export function composeWave(parts: Match[][], allPlayers: Player[], cfg: Cfg): M
 }
 
 export function planFirstRound(ranksAtStart: Player[], cfg: Cfg): Match[][] {
+  const sorted = ranksAtStart.slice().sort(bySeed);
+  const reversed = [...sorted].reverse();
+  const showdownMatches = generateExploratory(reversed, cfg);
+  const reversedShowdownMatches = [...showdownMatches].reverse();
   return [
-    generateWave("exploratory", ranksAtStart, cfg),
-    generateWave("eight", ranksAtStart, cfg),
-    generateWave("exploratory", ranksAtStart, cfg),
-    generateWave("eight", ranksAtStart, cfg),
+    generateExploratory(sorted, cfg),
+    reversedShowdownMatches,
+    generateExploratory(sorted, cfg),
+    reversedShowdownMatches,
   ];
 }
 

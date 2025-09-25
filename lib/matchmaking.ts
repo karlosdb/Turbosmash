@@ -1,5 +1,5 @@
 import { Match, Player, Round, SchedulePrefs } from "./types";
-import { generateEightShowdown, generateExploratory } from "./waves";
+import { generateExploratory } from "./waves";
 import { blended } from "./seeding";
 import { buildR1Wave, playablePlayersPerWave, PlayerLite as R1PlayerLite, Wave as R1Wave } from "./r1_matchmaking";
 
@@ -587,11 +587,13 @@ export function generateR1Wave(
 
   let matches: Match[];
   if (waveKind === "showdown") {
-    // Showdown: two-band snakes over the whole cohort ordered by current ranks
+    // Showdown: snake pairings from bottom up (reverse order)
     const cfg = { BAND_SIZE: 4, PARTNER_GAP_CAP: 5 };
     const wavePlayers = playerOrder.map((p) => ({ id: p.id, seed: p.rank }));
-    const generated = generateEightShowdown(wavePlayers, cfg);
-    matches = generated.map((gm, idx) => ({
+    const reversedPlayers = [...wavePlayers].reverse();
+    const generated = generateExploratory(reversedPlayers, cfg);
+    const reversedMatches = [...generated].reverse();
+    matches = reversedMatches.map((gm, idx) => ({
       id: uid(`r1w${waveIndex}`),
       roundIndex: 1,
       miniRoundIndex: waveIndex,
@@ -607,7 +609,7 @@ export function generateR1Wave(
       status: "scheduled",
     }));
   } else if (waveKind === "explore") {
-    // Exploratory wave: snake pairings across the cohort using current ranks
+    // Exploratory wave: snake pairings from top down
     const cfg = { BAND_SIZE: 4, PARTNER_GAP_CAP: 5 };
     const wavePlayers = playerOrder.map((p) => ({ id: p.id, seed: p.rank }));
     const generated = generateExploratory(wavePlayers, cfg);
@@ -745,8 +747,10 @@ export function generateLaterRound(
       }
 
       if (includeWave2) {
-        const showdownWave = generateEightShowdown(wavePlayers, cfg);
-        showdownWave.forEach((gm) => {
+        const reversedPlayers = [...wavePlayers].reverse();
+        const showdownWave = generateExploratory(reversedPlayers, cfg);
+        const reversedMatches = [...showdownWave].reverse();
+        reversedMatches.forEach((gm) => {
           matches.push({
             id: uid('r2w2'),
             roundIndex: 2,
