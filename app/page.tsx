@@ -10,8 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 function AppContent() {
   const { rounds } = useEvent();
 
-  // Check if tournament is complete (Round 3 is closed)
-  const tournamentComplete = rounds.some(r => r.index === 3 && r.status === "closed");
+  // Check if tournament is complete (final round is closed)
+  const tournamentComplete = rounds.some(r => r.kind === "final" && r.status === "closed");
 
   // Check if there's an active tournament loaded
   const hasActiveTournament = rounds.length > 0;

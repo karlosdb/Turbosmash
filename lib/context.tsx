@@ -1,21 +1,22 @@
-"use client";
+﻿"use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { EventState, Match, Player, Round, SchedulePrefs } from "./types";
+import type { EventState, Match, Player, Round, RoundKind, RoundPlanEntry, SchedulePrefs } from "./types";
 import { createEmptyEvent } from "./types";
 import { loadState, saveState, exportJSON as doExportJSON, importJSON as doImportJSON, initialState } from "./state";
-import { doublesEloDelta, doublesEloDeltaDetailed } from "./rating";
-import { prepareRound1, generateR1Wave, generateLaterRound } from "./matchmaking";
-import { cutAfterR1, cutAfterR2ToFinalFour, rankPlayers } from "./elimination";
+import { doublesEloDeltaDetailed } from "./rating";
+import { computeRoundPlan, prepareRound1, preparePrelimRound, generatePrelimWave, generateLaterRound, prelimWaveSequenceFromPrefs } from "./matchmaking";
+import { cutToTarget, rankPlayers } from "./elimination";
 
 type EventContextShape = {
   // state
   players: Player[];
   rounds: Round[];
-  currentRound: 1 | 2 | 3;
+  currentRound: number;
   schedulePrefs: SchedulePrefs;
   r1Signature?: string;
   initialRatingsById?: Record<string, number>;
+  roundPlan: RoundPlanEntry[];
 
   // player mgmt
   addPlayer: (name: string, seed: number) => void;
@@ -30,6 +31,12 @@ type EventContextShape = {
 
   // matches
   submitScore: (matchId: string, scoreA: number, scoreB: number) => void;
+
+  // Generic round/wave management
+  advanceCurrentWave: () => void;
+  closeCurrentRound: () => void;
+
+  // Backward compatibility - deprecated
   advanceR1Wave: () => void;
   advanceR2Wave: () => void;
 
@@ -63,6 +70,78 @@ function computeR1Signature(players: Player[]): string {
   return sorted.map((p) => `${p.seed}:${p.name}`).join("|");
 }
 
+function buildRoundForEntry(
+  entry: RoundPlanEntry,
+  players: Player[],
+  priorRounds: Round[],
+  prefs: SchedulePrefs
+): Round {
+  if (entry.kind === "prelim") {
+    const round = entry.index === 1 ? prepareRound1(players, prefs) : preparePrelimRound(entry.index, players, prefs);
+    return { ...round, targetSize: entry.targetSize };
+  }
+  if (entry.kind === "eight") {
+    const matches = generateLaterRound(players, priorRounds, entry.index, "eight", { upToWave: 1 });
+    const currentWave = matches.length > 0 ? 1 : 0;
+    return {
+      index: entry.index,
+      kind: "eight",
+      matches,
+      status: "active",
+      currentWave,
+      totalWaves: 2,
+      targetSize: entry.targetSize,
+    };
+  }
+  const matches = generateLaterRound(players, priorRounds, entry.index, "final");
+  return {
+    index: entry.index,
+    kind: "final",
+    matches,
+    status: "active",
+    targetSize: entry.targetSize,
+  };
+}
+
+function activeRoundOfKind(rounds: Round[], kind: RoundKind): Round | undefined {
+  for (let i = rounds.length - 1; i >= 0; i -= 1) {
+    const round = rounds[i];
+    if (round.kind === kind && round.status === "active") {
+      return round;
+    }
+  }
+  return undefined;
+}
+
+function getCurrentActiveRound(rounds: Round[]): Round | undefined {
+  return rounds.find(r => r.status === "active");
+}
+
+function getMaxWavesForRound(round: Round, schedulePrefs: SchedulePrefs): number {
+  if (round.kind === "prelim") {
+    const waveSequence = prelimWaveSequenceFromPrefs(schedulePrefs, round.index);
+    return waveSequence.length;
+  } else if (round.kind === "eight") {
+    return 2;
+  } else if (round.kind === "final") {
+    return 1;
+  }
+  return 0;
+}
+
+function planEntryByIndex(plan: RoundPlanEntry[] | undefined, index: number): RoundPlanEntry | undefined {
+  return plan?.find((entry) => entry.index === index);
+}
+
+function nextPlanEntry(plan: RoundPlanEntry[] | undefined, index: number): RoundPlanEntry | undefined {
+  if (!plan) return undefined;
+  return plan.find((entry) => entry.index > index);
+}
+
+function stageIndexFor(round: Round): 1 | 2 | 3 {
+  return round.kind === "prelim" ? 1 : round.kind === "eight" ? 2 : 3;
+}
+
 export function EventProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<EventState>(() => initialState());
 
@@ -83,6 +162,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   const schedulePrefs = state.schedulePrefs;
   const r1Signature = state.r1Signature;
   const initialRatingsById = state.initialRatingsById;
+  const roundPlan = state.roundPlan ?? [];
 
   const addPlayer = useCallback((name: string, seed: number) => {
     setState((s) => {
@@ -120,126 +200,254 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   const generateRound1 = useCallback(() => {
     setState((s) => {
       if (s.players.length < 8) return s;
-      const r1 = prepareRound1(s.players, s.schedulePrefs);
+      const plan = computeRoundPlan(s.players.length, s.schedulePrefs);
+      if (!plan.length) return s;
+      const firstEntry = plan[0];
+      const opener = buildRoundForEntry(firstEntry, s.players, [], s.schedulePrefs);
       const initialRatings: Record<string, number> = Object.fromEntries(s.players.map((p) => [p.id, p.rating]));
       const nextSig = computeR1Signature(s.players);
-      return { ...s, rounds: [r1], currentRound: 1, r1Signature: nextSig, initialRatingsById: initialRatings };
+      const resetPlayers = s.players.map((p) => ({ ...p, eliminatedAtRound: undefined }));
+      return {
+        ...s,
+        players: resetPlayers,
+        rounds: [opener],
+        currentRound: firstEntry.index,
+        r1Signature: nextSig,
+        initialRatingsById: initialRatings,
+        roundPlan: plan,
+      };
     });
   }, []);
 
-  const advanceR1Wave = useCallback(() => {
+  const advanceCurrentWave = useCallback(() => {
     setState((s) => {
-      const r1 = s.rounds.find((r) => r.index === 1);
-      if (!r1 || r1.status !== "active") return s;
-      const nextWave = (r1.currentWave ?? 0) + 1;
-      if ((r1.totalWaves ?? 0) > 0 && nextWave > (r1.totalWaves ?? 0)) return s;
-      const { matches, benched } = generateR1Wave(nextWave, s.players, r1, [], s.schedulePrefs);
-      const benchedSet = new Set(benched.map((p) => p.id));
-      const updatedPlayers = s.players.map((p) => ({ ...p, lastPlayedAt: benchedSet.has(p.id) ? p.lastPlayedAt : Date.now() }));
-      const updatedR1: Round = {
-        ...r1,
+      const activeRound = getCurrentActiveRound(s.rounds);
+      if (!activeRound) return s;
+
+      const maxWaves = getMaxWavesForRound(activeRound, s.schedulePrefs);
+      const nextWave = (activeRound.currentWave ?? 0) + 1;
+      if (maxWaves > 0 && nextWave > maxWaves) return s;
+
+      const survivors = s.players.filter((p) => !p.eliminatedAtRound);
+
+      let matches: Match[] = [];
+      let updatedPlayers = s.players;
+
+      if (activeRound.kind === "prelim") {
+        // Use preliminary round wave generation
+        const { matches: prelimMatches, benched } = generatePrelimWave(nextWave, survivors, activeRound, [], s.schedulePrefs);
+        if (prelimMatches.length === 0) return s;
+        matches = prelimMatches;
+
+        // Update player lastPlayedAt for preliminary rounds
+        const benchedSet = new Set(benched.map((p) => p.id));
+        const playingIds = new Set<string>();
+        matches.forEach((m) => {
+          playingIds.add(m.a1);
+          playingIds.add(m.a2);
+          playingIds.add(m.b1);
+          playingIds.add(m.b2);
+        });
+
+        updatedPlayers = s.players.map((p) => {
+          if (!playingIds.has(p.id) || benchedSet.has(p.id)) return p;
+          return { ...p, lastPlayedAt: Date.now() };
+        });
+      } else if (activeRound.kind === "eight" || activeRound.kind === "final") {
+        // Use later round wave generation
+        const priorRounds = s.rounds.filter((round) => round.index <= activeRound.index);
+        const nextMatches = generateLaterRound(survivors, priorRounds, activeRound.index, activeRound.kind, { upToWave: maxWaves });
+        const newWaveMatches = nextMatches.filter((m) => m.miniRoundIndex === nextWave);
+        if (newWaveMatches.length === 0) return s;
+        matches = newWaveMatches;
+      }
+
+      const updatedRound: Round = {
+        ...activeRound,
         currentWave: nextWave,
-        matches: [...r1.matches, ...matches],
+        matches: [...activeRound.matches, ...matches],
       };
-      const nextRounds = s.rounds.map((r) => (r.index === 1 ? updatedR1 : r));
+      const nextRounds = s.rounds.map((round) => (round.index === updatedRound.index ? updatedRound : round));
       return { ...s, players: updatedPlayers, rounds: nextRounds };
     });
   }, []);
+
+  const closeCurrentRound = useCallback(() => {
+    setState((s) => {
+      const activeRound = getCurrentActiveRound(s.rounds);
+      if (!activeRound) return s;
+
+      // For finals, check if all matches are completed (finals don't use wave system)
+      if (activeRound.kind === "final") {
+        const allMatches = activeRound.matches;
+        const allCompleted = allMatches.length > 0 && allMatches.every(m => m.status === "completed");
+        if (!allCompleted) return s;
+      } else {
+        // For other rounds, check if all waves are completed
+        const maxWaves = getMaxWavesForRound(activeRound, s.schedulePrefs);
+        const currentWave = activeRound.currentWave ?? 0;
+
+        // Only allow closing if we've completed all waves
+        if (currentWave < maxWaves) return s;
+
+        // Check if current wave is actually completed
+        const currentWaveMatches = activeRound.matches.filter(m => m.miniRoundIndex === currentWave);
+        const currentWaveCompleted = currentWaveMatches.length > 0 && currentWaveMatches.every(m => m.status === "completed");
+        if (!currentWaveCompleted) return s;
+      }
+
+      const closedRound: Round = { ...activeRound, status: "closed" };
+      const roundsAfterClose = s.rounds.map((round) => (round.index === closedRound.index ? closedRound : round));
+
+      let updatedPlayers = s.players;
+      let nextRounds = roundsAfterClose;
+      let nextCurrentRound = closedRound.index;
+
+      if (activeRound.kind === "prelim") {
+        // For preliminary rounds, perform player elimination and generate next round
+        const planEntry = planEntryByIndex(s.roundPlan, activeRound.index);
+        const targetSize = planEntry?.targetSize ?? 8;
+
+        const survivorsBeforeCut = s.players.filter((p) => !p.eliminatedAtRound);
+        const { keepIds, eliminatedIds } = cutToTarget(survivorsBeforeCut, roundsAfterClose, targetSize);
+        const eliminatedSet = new Set(eliminatedIds);
+
+        updatedPlayers = s.players.map((p) => {
+          if (!eliminatedSet.has(p.id)) return p;
+          if (p.eliminatedAtRound && p.eliminatedAtRound <= closedRound.index) return p;
+          return { ...p, eliminatedAtRound: closedRound.index };
+        });
+
+        const survivors = updatedPlayers.filter((p) => !p.eliminatedAtRound);
+        const nextEntry = nextPlanEntry(s.roundPlan, closedRound.index);
+        nextRounds = nextEntry
+          ? [...roundsAfterClose, buildRoundForEntry(nextEntry, survivors, roundsAfterClose, s.schedulePrefs)]
+          : roundsAfterClose;
+        nextCurrentRound = nextEntry?.index ?? closedRound.index;
+      } else if (activeRound.kind === "eight") {
+        // For eight-player rounds, perform elimination and generate final round
+        const survivorsBeforeCut = s.players.filter((p) => !p.eliminatedAtRound);
+        const { keepIds, eliminatedIds } = cutToTarget(survivorsBeforeCut, roundsAfterClose, 4);
+        const eliminatedSet = new Set(eliminatedIds);
+
+        updatedPlayers = s.players.map((p) => {
+          if (!eliminatedSet.has(p.id)) return p;
+          if (p.eliminatedAtRound && p.eliminatedAtRound <= closedRound.index) return p;
+          return { ...p, eliminatedAtRound: closedRound.index };
+        });
+
+        const survivors = updatedPlayers.filter((p) => !p.eliminatedAtRound);
+        const nextEntry = nextPlanEntry(s.roundPlan, closedRound.index);
+        nextRounds = nextEntry
+          ? [...roundsAfterClose, buildRoundForEntry(nextEntry, survivors, roundsAfterClose, s.schedulePrefs)]
+          : roundsAfterClose;
+        nextCurrentRound = nextEntry?.index ?? closedRound.index;
+      }
+      // For final rounds, no next round generation needed
+
+      return { ...s, players: updatedPlayers, rounds: nextRounds, currentRound: nextCurrentRound };
+    });
+  }, []);
+
+  // Backward compatibility wrappers
+  const advanceR1Wave = useCallback(() => {
+    // Use the generic function, which will work for any active round
+    advanceCurrentWave();
+  }, [advanceCurrentWave]);
 
   const advanceR2Wave = useCallback(() => {
-    setState((s) => {
-      const r2 = s.rounds.find((r) => r.index === 2);
-      if (!r2 || r2.status !== "active") return s;
-      const currentWave = r2.currentWave ?? 1;
-      if (currentWave >= 2) return s; // Round 2 only has 2 waves
-
-      // Get survivors (players not eliminated)
-      const survivors = s.players.filter((p) => !p.eliminatedAtRound);
-      const r1 = s.rounds.find((r) => r.index === 1);
-      if (!r1) return s;
-
-      // Generate Wave 2 (showdown) using current standings after Wave 1
-      const newMatches = generateLaterRound(survivors, [r1, r2], 2, { upToWave: 2 });
-      const wave2Matches = newMatches.filter((m) => m.miniRoundIndex === 2);
-
-      // Update players lastPlayedAt for those playing in Wave 2
-      const playingIds = new Set<string>();
-      wave2Matches.forEach((m) => {
-        playingIds.add(m.a1);
-        playingIds.add(m.a2);
-        playingIds.add(m.b1);
-        playingIds.add(m.b2);
-      });
-      const updatedPlayers = s.players.map((p) => ({
-        ...p,
-        lastPlayedAt: playingIds.has(p.id) ? Date.now() : p.lastPlayedAt
-      }));
-
-      const updatedR2: Round = {
-        ...r2,
-        currentWave: 2,
-        matches: [...r2.matches, ...wave2Matches],
-      };
-      const nextRounds = s.rounds.map((r) => (r.index === 2 ? updatedR2 : r));
-      return { ...s, players: updatedPlayers, rounds: nextRounds };
-    });
-  }, []);
+    // Use the generic function, which will work for any active round
+    advanceCurrentWave();
+  }, [advanceCurrentWave]);
 
   const closeRound1 = useCallback(() => {
     setState((s) => {
-      const r1 = s.rounds.find((r) => r.index === 1);
-      if (!r1) return s;
-      const allPlanned = (r1.waveSizes?.reduce((acc, v) => acc + v, 0) ?? r1.matches.length);
-      const completed = r1.matches.filter((m) => m.status === "completed").length;
-      if (completed < allPlanned) return s;
-      const r1Closed: Round = { ...r1, status: "closed" };
-      const { keepIds, eliminatedIds } = cutAfterR1(s.players, s.rounds);
-      const keepSet = new Set(keepIds);
+      const activePrelim = activeRoundOfKind(s.rounds, "prelim");
+      if (!activePrelim) return s;
+
+      // Check if all waves in the selected sequence are completed
+      const waveSequence = prelimWaveSequenceFromPrefs(s.schedulePrefs, activePrelim.index);
+      const maxWaves = waveSequence.length;
+      const currentWave = activePrelim.currentWave ?? 0;
+
+      // Only allow closing if we've completed all waves in the sequence
+      if (currentWave < maxWaves) return s;
+
+      // Check if current wave is actually completed
+      const currentWaveMatches = activePrelim.matches.filter(m => m.miniRoundIndex === currentWave);
+      const currentWaveCompleted = currentWaveMatches.length > 0 && currentWaveMatches.every(m => m.status === "completed");
+      if (!currentWaveCompleted) return s;
+
+      const planEntry = planEntryByIndex(s.roundPlan, activePrelim.index);
+      const targetSize = planEntry?.targetSize ?? 8;
+
+      const closedRound: Round = { ...activePrelim, status: "closed" };
+      const roundsAfterClose = s.rounds.map((round) => (round.index === closedRound.index ? closedRound : round));
+
+      const survivorsBeforeCut = s.players.filter((p) => !p.eliminatedAtRound);
+      const { keepIds, eliminatedIds } = cutToTarget(survivorsBeforeCut, roundsAfterClose, targetSize);
       const eliminatedSet = new Set(eliminatedIds);
-      const nextPlayers = s.players.map((p) => ({
-        ...p,
-        eliminatedAtRound: eliminatedSet.has(p.id) ? 1 : p.eliminatedAtRound,
-      }));
-      const survivors = nextPlayers.filter((p) => keepSet.has(p.id));
-      // Re-seed survivors by round-1 point differential, maintaining deterministic structure
-      const r2Matches = generateLaterRound(survivors, [r1Closed], 2, { upToWave: 1 });
-      const r2: Round = { index: 2, matches: r2Matches, status: "active", currentWave: 1, totalWaves: 2 };
-      const nextRounds = [r1Closed, r2];
-      return { ...s, players: nextPlayers, rounds: nextRounds, currentRound: 2 };
+
+      const updatedPlayers = s.players.map((p) => {
+        if (!eliminatedSet.has(p.id)) return p;
+        if (p.eliminatedAtRound && p.eliminatedAtRound <= closedRound.index) return p;
+        return { ...p, eliminatedAtRound: closedRound.index };
+      });
+
+      const survivors = updatedPlayers.filter((p) => !p.eliminatedAtRound);
+      const nextEntry = nextPlanEntry(s.roundPlan, closedRound.index);
+      const nextRounds = nextEntry
+        ? [...roundsAfterClose, buildRoundForEntry(nextEntry, survivors, roundsAfterClose, s.schedulePrefs)]
+        : roundsAfterClose;
+      const nextCurrentRound = nextEntry?.index ?? closedRound.index;
+      return { ...s, players: updatedPlayers, rounds: nextRounds, currentRound: nextCurrentRound };
     });
   }, []);
 
   const closeRound2 = useCallback(() => {
     setState((s) => {
-      const r2 = s.rounds.find((r) => r.index === 2);
-      if (!r2) return s;
-      const planned = r2.matches.length;
-      const completed = r2.matches.filter((m) => m.status === "completed").length;
+      const activeEight = activeRoundOfKind(s.rounds, "eight");
+      if (!activeEight) return s;
+      const planned = activeEight.matches.length;
+      const completed = activeEight.matches.filter((m) => m.status === "completed").length;
       if (completed < planned) return s;
-      const r2Closed: Round = { ...r2, status: "closed" };
-      const survivors = s.players.filter((p) => !p.eliminatedAtRound);
-      const { keepIds, eliminatedIds } = cutAfterR2ToFinalFour(survivors, s.rounds);
+
+      const planEntry = planEntryByIndex(s.roundPlan, activeEight.index);
+      const targetSize = planEntry?.targetSize ?? 4;
+
+      const closedRound: Round = { ...activeEight, status: "closed" };
+      const roundsAfterClose = s.rounds.map((round) => (round.index === closedRound.index ? closedRound : round));
+
+      const survivorsBeforeCut = s.players.filter((p) => !p.eliminatedAtRound);
+      const { keepIds, eliminatedIds } = cutToTarget(survivorsBeforeCut, roundsAfterClose, targetSize);
       const eliminatedSet = new Set(eliminatedIds);
-      const nextPlayers = s.players.map((p) => ({
-        ...p,
-        eliminatedAtRound: eliminatedSet.has(p.id) ? 2 : p.eliminatedAtRound,
-      }));
-      const finalists = nextPlayers.filter((p) => keepIds.includes(p.id));
-      const r3Matches = generateLaterRound(finalists, [s.rounds.find((r) => r.index === 1)!, r2Closed], 3, s.schedulePrefs.courts);
-      const r3: Round = { index: 3, matches: r3Matches, status: "active" };
-      return { ...s, players: nextPlayers, rounds: [s.rounds.find((r) => r.index === 1)!, r2Closed, r3], currentRound: 3 };
+
+      const updatedPlayers = s.players.map((p) => {
+        if (!eliminatedSet.has(p.id)) return p;
+        if (p.eliminatedAtRound && p.eliminatedAtRound <= closedRound.index) return p;
+        return { ...p, eliminatedAtRound: closedRound.index };
+      });
+
+      const survivors = updatedPlayers.filter((p) => !p.eliminatedAtRound);
+      const nextEntry = nextPlanEntry(s.roundPlan, closedRound.index);
+      const nextRounds = nextEntry
+        ? [...roundsAfterClose, buildRoundForEntry(nextEntry, survivors, roundsAfterClose, s.schedulePrefs)]
+        : roundsAfterClose;
+      const nextCurrentRound = nextEntry?.index ?? closedRound.index;
+      return { ...s, players: updatedPlayers, rounds: nextRounds, currentRound: nextCurrentRound };
     });
   }, []);
 
   const closeEvent = useCallback(() => {
     setState((s) => {
-      const r3 = s.rounds.find((r) => r.index === 3);
-      if (!r3) return s;
-      const planned = r3.matches.length;
-      const completed = r3.matches.filter((m) => m.status === "completed").length;
+      const finalRound = s.rounds.find((round) => round.kind === "final");
+      if (!finalRound) return s;
+      if (finalRound.status === "closed") return s;
+      const planned = finalRound.matches.length;
+      const completed = finalRound.matches.filter((m) => m.status === "completed").length;
       if (completed < planned) return s;
-      const r3Closed: Round = { ...r3, status: "closed" };
-      const nextRounds = s.rounds.map((r) => (r.index === 3 ? r3Closed : r));
+      const closedRound: Round = { ...finalRound, status: "closed" };
+      const nextRounds = s.rounds.map((round) => (round.index === closedRound.index ? closedRound : round));
       return { ...s, rounds: nextRounds };
     });
   }, []);
@@ -267,7 +475,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         b2.rating,
         scoreA,
         scoreB,
-        round.index as 1 | 2 | 3,
+        stageIndexFor(round),
         match.miniRoundIndex,
         a1.lastPartnerId === a2.id,
         false,
@@ -362,7 +570,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   }, [players]);
 
   const exportAnalysisCSV = useCallback(() => {
-    const header = ["Name","Seed","Start Elo","End Elo","Δ Elo","PF","PA","PD","Games","LockedRank"].join(",");
+    const header = ["Name","Seed","Start Elo","End Elo","Delta Elo","PF","PA","PD","Games","LockedRank"].join(",");
     const start = initialRatingsById || {};
     const lines = players.map((p) => {
       const s = start[p.id] ?? p.rating;
@@ -415,6 +623,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     schedulePrefs,
     r1Signature,
     initialRatingsById,
+    roundPlan,
     addPlayer,
     removePlayer,
     reorderPlayers,
@@ -423,6 +632,8 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     closeRound2,
     closeEvent,
     submitScore,
+    advanceCurrentWave,
+    closeCurrentRound,
     advanceR1Wave,
     advanceR2Wave,
     updateSchedulePrefs,
@@ -433,9 +644,36 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     demo12,
     exportRatingsJSON,
     exportAnalysisCSV,
-  }), [players, rounds, currentRound, schedulePrefs, r1Signature, initialRatingsById, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceR1Wave, advanceR2Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo12, exportRatingsJSON, exportAnalysisCSV]);
+  }), [players, rounds, currentRound, schedulePrefs, r1Signature, initialRatingsById, roundPlan, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceCurrentWave, closeCurrentRound, advanceR1Wave, advanceR2Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo12, exportRatingsJSON, exportAnalysisCSV]);
 
   return <EventContext.Provider value={value}>{children}</EventContext.Provider>;
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

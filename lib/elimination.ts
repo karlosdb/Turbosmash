@@ -1,33 +1,24 @@
-import { EventState, Match, Player } from "./types";
+import { Match, Player, Round } from "./types";
 
-export function cutSizeAfterR1(total: number): number {
-  const minKeep = 6;
-  const keep = Math.max(minKeep, total - Math.ceil(total / 4));
-  return keep % 2 === 0 ? keep : keep - 1; // ensure even
-}
-
-export function cutAfterR1(players: Player[], rounds: EventState["rounds"]): {
+export function cutToTarget(
+  players: Player[],
+  rounds: Round[],
+  targetSize: number
+): {
   keepIds: string[];
   eliminatedIds: string[];
 } {
-  const keep = cutSizeAfterR1(players.length);
+  if (targetSize >= players.length) {
+    return { keepIds: players.map((p) => p.id), eliminatedIds: [] };
+  }
   const ranked = rankForCut(players, rounds);
+  const keep = Math.max(0, Math.min(targetSize, ranked.length));
   const keepIds = ranked.slice(0, keep).map((p) => p.id);
   const eliminatedIds = ranked.slice(keep).map((p) => p.id);
   return { keepIds, eliminatedIds };
 }
 
-export function cutAfterR2ToFinalFour(players: Player[], rounds: EventState["rounds"]): {
-  keepIds: string[];
-  eliminatedIds: string[];
-} {
-  const ranked = rankForCut(players, rounds);
-  const keepIds = ranked.slice(0, 4).map((p) => p.id);
-  const eliminatedIds = ranked.slice(4).map((p) => p.id);
-  return { keepIds, eliminatedIds };
-}
-
-function rankForCut(players: Player[], rounds: EventState["rounds"]): Player[] {
+function rankForCut(players: Player[], rounds: Round[]): Player[] {
   const pointDiff: Record<string, number> = {};
   for (const p of players) pointDiff[p.id] = p.pointsFor - p.pointsAgainst;
   // build head-to-head map from completed matches
@@ -66,8 +57,6 @@ function rankForCut(players: Player[], rounds: EventState["rounds"]): Player[] {
 }
 
 // Export ranking for use in UI/state decisions (e.g., locking eliminated placements)
-export function rankPlayers(players: Player[], rounds: EventState["rounds"]): Player[] {
+export function rankPlayers(players: Player[], rounds: Round[]): Player[] {
   return rankForCut(players, rounds);
 }
-
-

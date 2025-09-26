@@ -5,7 +5,9 @@
       "Bash(node:*)",
       "Bash(npx tsx:*)",
       "Bash(del debug_exploratory.js)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run lint)"
     ],
     "deny": [],
     "ask": []

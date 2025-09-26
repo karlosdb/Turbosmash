@@ -18,7 +18,7 @@ type Award = {
 };
 
 export default function PostTournamentScreen() {
-  const { players, rounds, initialRatingsById, exportAnalysisCSV, exportRatingsJSON, resetAll } = useEvent();
+  const { players, rounds, initialRatingsById, exportAnalysisCSV, exportRatingsJSON, resetAll, resetTournament } = useEvent();
 
   // Calculate final rankings
   const finalRankings = useMemo(() => {
@@ -174,12 +174,12 @@ export default function PostTournamentScreen() {
           </Card>
         </motion.div>
 
-        {/* Podium - Top 3 */}
+        {/* Podium - Runner-ups */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-4"
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
         >
           {/* 2nd Place */}
           {runnerUp && (
@@ -192,16 +192,6 @@ export default function PostTournamentScreen() {
               </CardContent>
             </Card>
           )}
-
-          {/* 1st Place (Champion) - Taller */}
-          <Card className="border-4 border-yellow-400 bg-gradient-to-b from-yellow-200 to-amber-200 md:-mt-4">
-            <CardContent className="p-8 text-center">
-              <Crown className="h-16 w-16 text-yellow-600 mx-auto mb-2" />
-              <Badge className="mb-2 bg-yellow-600">Champion</Badge>
-              <div className="font-bold text-xl">{champion?.name}</div>
-              <div className="text-amber-700">Rating: {champion?.rating}</div>
-            </CardContent>
-          </Card>
 
           {/* 3rd Place */}
           {thirdPlace && (
@@ -380,7 +370,20 @@ export default function PostTournamentScreen() {
 
           <Button
             onClick={() => {
-              if (confirm("Are you sure you want to start a new tournament? This will clear all current data.")) {
+              if (confirm("Are you sure you want to start a new tournament with the same players? This will reset tournament data but keep all players.")) {
+                resetTournament();
+              }
+            }}
+            variant="outline"
+            className="border-green-500 text-green-600 hover:bg-green-50"
+          >
+            <RotateCcw className="h-4 w-4 mr-2" />
+            New Tournament with Same Players
+          </Button>
+
+          <Button
+            onClick={() => {
+              if (confirm("Are you sure you want to start a completely new tournament? This will clear all current data including players.")) {
                 resetAll();
               }
             }}

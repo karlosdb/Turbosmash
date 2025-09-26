@@ -7,7 +7,10 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest"
+
+    "test": "vitest --run",
+    "test:watch": "vitest",
+    "test:ci": "cross-env CI=1 vitest --run --reporter=basic"
   },
   "dependencies": {
     "@radix-ui/react-collapsible": "^1.0.3",
@@ -31,6 +34,7 @@
     "tailwind-variants": "^3.1.1",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^2.1.5"
+    "vitest": "^2.1.5",
+    "cross-env": "^10.0.0"
   }
 }

@@ -1,7 +1,6 @@
 export type Player = { id: string; seed: number };
 export type Team = [Player, Player];
-export type Match = { teamA: Team; teamB: Team; type: "exploratory" | "eight" };
-export type WaveType = "exploratory" | "eight";
+export type Match = { teamA: Team; teamB: Team; type: "exploratory" };
 export type Cfg = { BAND_SIZE: number; PARTNER_GAP_CAP: number };
 
 // Sorting and helpers (deterministic)
@@ -16,27 +15,24 @@ export function chunkAscending<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-export function mk(a: Player, b: Player, c: Player, d: Player, type: Match["type"]): Match {
-  // Sort each team so higher rank (lower seed number) comes first
+export function mk(a: Player, b: Player, c: Player, d: Player): Match {
   const teamA = a.seed <= b.seed ? [a, b] : [b, a];
   const teamB = c.seed <= d.seed ? [c, d] : [d, c];
-  return { teamA: teamA as Team, teamB: teamB as Team, type };
+  return { teamA: teamA as Team, teamB: teamB as Team, type: "exploratory" };
 }
 
 // Adjacent-band "safe snakes" for two bands A,B (each length = BAND_SIZE, sorted)
-export function snakesTwoBands(A: Player[], B: Player[], type: Match["type"]): Match[] {
+export function snakesTwoBands(A: Player[], B: Player[]): Match[] {
   return [
-    mk(A[0], B[1], A[1], B[0], type),
-    mk(A[2], B[3], A[3], B[2], type),
+    mk(A[0], B[1], A[1], B[0]),
+    mk(A[2], B[3], A[3], B[2]),
   ];
 }
 
 // Lone intra-band snake when a single band remains (BAND_SIZE = 4)
-export function snakeOneBand(C: Player[], type: Match["type"]): Match {
-  return mk(C[0], C[3], C[1], C[2], type);
+export function snakeOneBand(C: Player[]): Match {
+  return mk(C[0], C[3], C[1], C[2]);
 }
-
-export type WaveGen = (players: Player[], cfg: Cfg) => Match[];
 
 export function bandIndex(p: Player, cfg: Cfg): number {
   return Math.floor((p.seed - 1) / cfg.BAND_SIZE);
@@ -66,20 +62,6 @@ export function assertWave(matches: Match[], players: Player[], cfg: Cfg): void 
   if (matches.length !== players.length / 4) throw new Error("wrong number of matches for cohort size");
 }
 
-export function assertGlobal(matches: Match[], allPlayers: Player[], _cfg: Cfg): void {
-  const ids = new Set(allPlayers.map((p) => p.id));
-  const count = new Map<string, number>();
-  for (const m of matches) {
-    for (const p of [...m.teamA, ...m.teamB]) {
-      if (!ids.has(p.id)) throw new Error("unknown player in composed wave");
-      count.set(p.id, (count.get(p.id) ?? 0) + 1);
-    }
-  }
-  for (const p of allPlayers) {
-    if ((count.get(p.id) ?? 0) !== 1) throw new Error(`player ${p.id} appears ${count.get(p.id) ?? 0} times`);
-  }
-}
-
 export function generateExploratory(players: Player[], cfg: Cfg): Match[] {
   if (players.length % 4 !== 0) throw new Error("exploratory requires N % 4 = 0");
   const bands = chunkAscending(players, cfg.BAND_SIZE);
@@ -87,30 +69,11 @@ export function generateExploratory(players: Player[], cfg: Cfg): Match[] {
   for (let i = 0; i < bands.length; i += 2) {
     const A = bands[i];
     const B = bands[i + 1];
-    if (B) out.push(...snakesTwoBands(A, B, "exploratory"));
-    else out.push(snakeOneBand(A, "exploratory"));
+    if (B) out.push(...snakesTwoBands(A, B));
+    else out.push(snakeOneBand(A));
   }
   assertWave(out, players, cfg);
   return out;
-}
-
-
-export const registry: Record<WaveType, WaveGen> = {
-  exploratory: generateExploratory,
-};
-
-export function generateWave(type: WaveType, players: Player[], cfg: Cfg): Match[] {
-  const gen = registry[type];
-  if (!gen) throw new Error(`Unknown wave type: ${type}`);
-  const matches = gen(players, cfg);
-  assertWave(matches, players, cfg);
-  return matches;
-}
-
-export function composeWave(parts: Match[][], allPlayers: Player[], cfg: Cfg): Match[] {
-  const merged = parts.flat();
-  assertGlobal(merged, allPlayers, cfg);
-  return merged;
 }
 
 export function planFirstRound(ranksAtStart: Player[], cfg: Cfg): Match[][] {
@@ -125,5 +88,3 @@ export function planFirstRound(ranksAtStart: Player[], cfg: Cfg): Match[][] {
     reversedShowdownMatches,
   ];
 }
-
-

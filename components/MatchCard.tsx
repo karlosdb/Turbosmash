@@ -20,7 +20,7 @@ const compromiseStyles: Record<string, string> = {
 };
 
 export default function MatchCard({ matchId, readonly = false }: { matchId: string; readonly?: boolean }) {
-  const { rounds, players, submitScore } = useEvent();
+  const { rounds, players, submitScore, schedulePrefs } = useEvent();
   const match = useMemo(() => rounds.flatMap((r) => r.matches).find((m) => m.id === matchId), [rounds, matchId]);
   const byId = useMemo(() => Object.fromEntries(players.map((p) => [p.id, p])), [players]);
   const [scoreA, setScoreA] = useState<string>(match?.scoreA !== undefined ? String(match.scoreA) : "");
@@ -39,7 +39,17 @@ export default function MatchCard({ matchId, readonly = false }: { matchId: stri
   const b1 = match ? byId[match.b1] : undefined;
   const b2 = match ? byId[match.b2] : undefined;
 
-  const roundTarget = match && match.roundIndex === 1 ? 15 : 11;
+  const getRoundScoreCap = (roundIndex: number): number => {
+    if (schedulePrefs.roundScoreCaps?.[roundIndex]) {
+      return schedulePrefs.roundScoreCaps[roundIndex];
+    }
+    if (roundIndex === 1) return schedulePrefs.r1ScoreCap ?? 21;
+    if (roundIndex === 2) return schedulePrefs.r2ScoreCap ?? 11;
+    if (roundIndex === 3) return schedulePrefs.r3ScoreCap ?? 11;
+    return 11;
+  };
+
+  const roundTarget = match ? getRoundScoreCap(match.roundIndex) : 11;
   const waveLabel = match && match.roundIndex === 1 && match.miniRoundIndex ? `Wave ${match.miniRoundIndex}` : null;
   const compromiseLabel = match?.compromise ? compromiseLabels[match.compromise] ?? "" : "";
   const compromiseClass = match?.compromise ? compromiseStyles[match.compromise] ?? "" : "";
