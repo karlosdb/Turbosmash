@@ -277,10 +277,10 @@ export default function RoundsEditor() {
     const isCapLocked = isRoundCapLocked(roundIndex);
     const isEditing = editingCapForRound === roundIndex;
 
-    // Wave and match logic for this round
+    // Wave and match logic for this round - prioritize user's current selection
     const plannedWavesForOrder = selectedOrder === "explore-showdown-explore-showdown" ? 4 : 3;
     const targetGamesPlanned = selectedOrder === "explore-showdown-explore-showdown" ? 4 : 3;
-    const totalWaves = round?.totalWaves ?? round?.waveSizes?.length ?? plannedWavesForOrder;
+    const totalWaves = plannedWavesForOrder;
     const currentWave = round?.currentWave ?? 0;
 
     const matchesByWave = new Map<number, Match[]>();

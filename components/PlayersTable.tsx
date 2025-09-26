@@ -6,6 +6,7 @@ import Button from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTabs } from "@/components/ui/tabs";
+import { AlertCircle, Clock, Info } from "lucide-react";
 
 export default function PlayersTable() {
   const {
@@ -39,7 +40,22 @@ export default function PlayersTable() {
     [sortedPlayers]
   );
 
-  const canStart = players.length >= 8 && (rounds.length === 0 || r1Signature !== currentSignature);
+  const isValidCohortSize = (count: number) => {
+    return count >= 12 && count % 4 === 0;
+  };
+
+  const canStart = isValidCohortSize(players.length) && (rounds.length === 0 || r1Signature !== currentSignature);
+
+  const getPlayerCountMessage = () => {
+    if (players.length < 12) {
+      return `Need at least 12 players (currently ${players.length})`;
+    }
+    if (players.length % 4 !== 0) {
+      const nextValid = Math.ceil(players.length / 4) * 4;
+      return `Need multiple of 4 players (currently ${players.length}, add ${nextValid - players.length} more)`;
+    }
+    return `Ready with ${players.length} players`;
+  };
 
   const onStart = () => {
     if (!canStart) return;
@@ -109,13 +125,45 @@ export default function PlayersTable() {
         <CardTitle>Players</CardTitle>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => demo12()}>Demo 12</Button>
-          <Button
-            onClick={onStart}
-            disabled={!canStart}
-            className="shadow-sm hover:shadow-md active:scale-[0.99]"
-          >
-            Start tournament
-          </Button>
+          <div className="relative flex items-center gap-1">
+            <Button
+              onClick={onStart}
+              disabled={!canStart}
+              className={`shadow-sm hover:shadow-md active:scale-[0.99] ${
+                !canStart ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              Start tournament
+            </Button>
+            {!canStart && (
+              <div className="relative group">
+                <div className={`flex items-center justify-center w-9 h-9 rounded-full cursor-help ${
+                  players.length < 12
+                    ? 'bg-red-100 text-red-600'
+                    : 'bg-amber-100 text-amber-600'
+                }`}>
+                  <Info className="h-4 w-4" />
+                </div>
+                <div className={`absolute right-0 top-6 w-64 px-3 py-2 rounded-lg border shadow-lg transform scale-0 group-hover:scale-100 transition-transform duration-200 origin-top-right z-10 ${
+                  players.length < 12
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : 'bg-amber-50 border-amber-200 text-amber-700'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {players.length < 12 ? (
+                      <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                    ) : (
+                      <Clock className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                    )}
+                    <span className="text-sm font-medium">{getPlayerCountMessage()}</span>
+                  </div>
+                  <div className={`absolute -top-1 right-2 w-2 h-2 rotate-45 ${
+                    players.length < 12 ? 'bg-red-50 border-l border-t border-red-200' : 'bg-amber-50 border-l border-t border-amber-200'
+                  }`}></div>
+                </div>
+              </div>
+            )}
+          </div>
           <Button variant="outline" onClick={() => {
             const blob = new Blob([exportJSON()], { type: "application/json" });
             const url = URL.createObjectURL(blob);
