@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
-import { CircleHelp, ChevronDown, Trophy } from "lucide-react";
+import { CircleHelp, ChevronDown, Trophy, FlaskConical } from "lucide-react";
 import Button from "@/components/ui/button";
 import {
   Dialog,
@@ -100,7 +100,7 @@ const sections = [
 ];
 
 export default function TopBar() {
-  const { exportRatingsJSON, exportAnalysisCSV } = useEvent();
+  const { exportRatingsJSON, exportAnalysisCSV, testMode, toggleTestMode } = useEvent();
   return (
     <motion.header
       initial={{ y: -12, opacity: 0 }}
@@ -113,7 +113,17 @@ export default function TopBar() {
           <Trophy className="h-5 w-5 text-indigo-600" />
           <span className="text-sm font-semibold tracking-tight">TurboSmash</span>
         </div>
-        <Dialog>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={testMode.enabled ? "default" : "ghost"}
+            size="sm"
+            onClick={toggleTestMode}
+            className="gap-2"
+          >
+            <FlaskConical className="h-4 w-4" />
+            Test Mode
+          </Button>
+          <Dialog>
           <DialogTrigger asChild>
             <Button variant="secondary" size="sm" className="gap-2">
               <CircleHelp className="h-4 w-4" />
@@ -166,6 +176,7 @@ export default function TopBar() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
     </motion.header>
   );

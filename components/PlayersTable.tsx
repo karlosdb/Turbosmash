@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTabs } from "@/components/ui/tabs";
 import { AlertCircle, Clock, Info } from "lucide-react";
+import TestModeWrapper from "@/components/TestModeWrapper";
 
 export default function PlayersTable() {
   const {
@@ -19,7 +20,9 @@ export default function PlayersTable() {
     importJSON,
     resetTournament,
     resetAll,
+    demo8,
     demo12,
+    demo16,
     rounds,
     r1Signature,
   } = useEvent();
@@ -126,7 +129,11 @@ export default function PlayersTable() {
       <CardHeader className="flex items-center justify-between">
         <CardTitle>Players</CardTitle>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => demo12()}>Demo 12</Button>
+          <TestModeWrapper feature="demoButtons">
+            <Button variant="secondary" onClick={() => demo8()}>Demo 8</Button>
+            <Button variant="secondary" onClick={() => demo12()}>Demo 12</Button>
+            <Button variant="secondary" onClick={() => demo16()}>Demo 16</Button>
+          </TestModeWrapper>
           <div className="relative flex items-center gap-1">
             <Button
               onClick={onStart}

@@ -28,7 +28,6 @@ const EIGHT_ROUND_PROGRAM: readonly WaveKind[] = ["explore", "showdown"];
 const DEFAULT_PARTNER_GAP = 5;
 function nextPrelimTarget(count: number): number {
   if (count <= 4) return 4;
-  if (count === 8) return 4;
 
   // For larger fields, walk down by fours while skipping shallow cuts that only trim two players.
   if (count > 14) {
@@ -56,7 +55,13 @@ export function computeRoundPlan(totalPlayers: number, prefs: SchedulePrefs): Ro
       current = 8;
     }
   } else {
-    while (current >= 8) {
+    // Special case for exactly 8 players: prelim -> finals (skip semifinals)
+    if (current === 8) {
+      plan.push({ index: index++, kind: "prelim", targetSize: 4 });
+      current = 4;
+    }
+
+    while (current > 8) {
       const next = nextPrelimTarget(current);
       if (next >= current) break;
       plan.push({ index: index++, kind: "prelim", targetSize: next });

@@ -8,6 +8,18 @@ import { doublesEloDeltaDetailed } from "./rating";
 import { computeRoundPlan, prepareRound1, preparePrelimRound, generatePrelimWave, generateLaterRound, prelimWaveSequenceFromPrefs } from "./matchmaking";
 import { cutToTarget, rankPlayers } from "./elimination";
 
+// Extensible test mode configuration
+type TestModeConfig = {
+  enabled: boolean;
+  features: {
+    demoButtons: boolean;
+    randomizeButtons: boolean;
+    debugInfo: boolean;
+    devTools: boolean;
+    experimentalFeatures: boolean;
+  };
+};
+
 type EventContextShape = {
   // state
   players: Player[];
@@ -48,9 +60,16 @@ type EventContextShape = {
   importJSON: (json: string) => void;
   resetTournament: () => void;
   resetAll: () => void;
+  demo8: () => void;
   demo12: () => void;
+  demo16: () => void;
   exportRatingsJSON: () => string;
   exportAnalysisCSV: () => string;
+
+  // test mode
+  testMode: TestModeConfig;
+  toggleTestMode: () => void;
+  isTestModeEnabled: (feature?: keyof TestModeConfig['features']) => boolean;
 };
 
 const EventContext = createContext<EventContextShape | null>(null);
@@ -141,8 +160,32 @@ function stageIndexFor(round: Round): 1 | 2 | 3 {
   return round.kind === "prelim" ? 1 : round.kind === "eight" ? 2 : 3;
 }
 
+const defaultTestModeConfig: TestModeConfig = {
+  enabled: false,
+  features: {
+    demoButtons: true,
+    randomizeButtons: true,
+    debugInfo: false,
+    devTools: false,
+    experimentalFeatures: false,
+  },
+};
+
 export function EventProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<EventState>(() => initialState());
+  const [testMode, setTestMode] = useState<TestModeConfig>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('turbosmash-test-mode');
+      if (stored) {
+        try {
+          return { ...defaultTestModeConfig, ...JSON.parse(stored) };
+        } catch {
+          return defaultTestModeConfig;
+        }
+      }
+    }
+    return defaultTestModeConfig;
+  });
 
   // load from localStorage on mount (client only)
   useEffect(() => {
@@ -154,6 +197,13 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     saveState(state);
   }, [state]);
+
+  // save test mode to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('turbosmash-test-mode', JSON.stringify(testMode));
+    }
+  }, [testMode]);
 
   const players = state.players;
   const rounds = state.rounds;
@@ -597,6 +647,31 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     return [header, ...lines].join("\n");
   }, [players, initialRatingsById]);
 
+  const demo8 = useCallback(() => {
+    setState(() => {
+      const names = [
+        "Alex","Blake","Casey","Drew","Evan","Flynn","Gray","Hayden",
+      ];
+      const N = names.length;
+      const players: Player[] = names.map((name, idx) => ({
+        id: uid("plr"),
+        name,
+        seed: idx + 1,
+        rating: 1000 + 25 * ((N + 1 - 2 * (idx + 1)) / 2),
+        seedPrior: 1000 + 25 * ((N + 1 - 2 * (idx + 1)) / 2),
+        gamesPlayed: 0,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        lastPlayedAt: Date.now(),
+      }));
+      const baseline = createEmptyEvent();
+      return {
+        ...baseline,
+        players,
+      };
+    });
+  }, []);
+
   const demo12 = useCallback(() => {
     setState(() => {
       const names = [
@@ -621,6 +696,41 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       };
     });
   }, []);
+
+  const demo16 = useCallback(() => {
+    setState(() => {
+      const names = [
+        "Alex","Blake","Casey","Drew","Evan","Flynn","Gray","Hayden","Indy","Jules","Kai","Logan","Max","Nina","Owen","Parker",
+      ];
+      const N = names.length;
+      const players: Player[] = names.map((name, idx) => ({
+        id: uid("plr"),
+        name,
+        seed: idx + 1,
+        rating: 1000 + 25 * ((N + 1 - 2 * (idx + 1)) / 2),
+        seedPrior: 1000 + 25 * ((N + 1 - 2 * (idx + 1)) / 2),
+        gamesPlayed: 0,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        lastPlayedAt: Date.now(),
+      }));
+      const baseline = createEmptyEvent();
+      return {
+        ...baseline,
+        players,
+      };
+    });
+  }, []);
+
+  const toggleTestMode = useCallback(() => {
+    setTestMode(prev => ({ ...prev, enabled: !prev.enabled }));
+  }, []);
+
+  const isTestModeEnabled = useCallback((feature?: keyof TestModeConfig['features']) => {
+    if (!testMode.enabled) return false;
+    if (!feature) return true;
+    return testMode.features[feature];
+  }, [testMode]);
 
   const value = useMemo<EventContextShape>(() => ({
     players,
@@ -647,10 +757,15 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     importJSON,
     resetTournament,
     resetAll,
+    demo8,
     demo12,
+    demo16,
     exportRatingsJSON,
     exportAnalysisCSV,
-  }), [players, rounds, currentRound, schedulePrefs, r1Signature, initialRatingsById, roundPlan, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceCurrentWave, closeCurrentRound, advanceR1Wave, advanceR2Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo12, exportRatingsJSON, exportAnalysisCSV]);
+    testMode,
+    toggleTestMode,
+    isTestModeEnabled,
+  }), [players, rounds, currentRound, schedulePrefs, r1Signature, initialRatingsById, roundPlan, addPlayer, removePlayer, reorderPlayers, generateRound1, closeRound1, closeRound2, closeEvent, submitScore, advanceCurrentWave, closeCurrentRound, advanceR1Wave, advanceR2Wave, updateSchedulePrefs, exportJSON, importJSON, resetTournament, resetAll, demo8, demo12, demo16, exportRatingsJSON, exportAnalysisCSV, testMode, toggleTestMode, isTestModeEnabled]);
 
   return <EventContext.Provider value={value}>{children}</EventContext.Provider>;
 }
