@@ -178,12 +178,14 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       const stored = localStorage.getItem('turbosmash-test-mode');
       if (stored) {
         try {
+          // For returning users, preserve their test mode state (including enabled status)
           return { ...defaultTestModeConfig, ...JSON.parse(stored) };
         } catch {
           return defaultTestModeConfig;
         }
       }
     }
+    // For new users with no localStorage, default to OFF
     return defaultTestModeConfig;
   });
 
