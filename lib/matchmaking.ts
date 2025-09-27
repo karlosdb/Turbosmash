@@ -280,7 +280,7 @@ function generateFinalFour(players: Player[], roundIndex: number): Match[] {
   return combos.map((teams, idx) => ({
     id: uid(`r${roundIndex}w${idx + 1}`),
     roundIndex,
-    miniRoundIndex: idx + 1,
+    miniRoundIndex: 1,
     court: idx + 1,
     a1: teams[0][0].id,
     a2: teams[0][1].id,

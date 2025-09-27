@@ -81,24 +81,23 @@ function buildRoundForEntry(
     return { ...round, targetSize: entry.targetSize };
   }
   if (entry.kind === "eight") {
-    const matches = generateLaterRound(players, priorRounds, entry.index, "eight", { upToWave: 1 });
-    const currentWave = matches.length > 0 ? 1 : 0;
     return {
       index: entry.index,
       kind: "eight",
-      matches,
+      matches: [],
       status: "active",
-      currentWave,
+      currentWave: 0,
       totalWaves: 2,
       targetSize: entry.targetSize,
     };
   }
-  const matches = generateLaterRound(players, priorRounds, entry.index, "final");
   return {
     index: entry.index,
     kind: "final",
-    matches,
+    matches: [],
     status: "active",
+    currentWave: 0,
+    totalWaves: 1,
     targetSize: entry.targetSize,
   };
 }
