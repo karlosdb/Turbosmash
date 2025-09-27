@@ -66,6 +66,7 @@ export type SchedulePrefs = {
 
   // New dynamic system
   roundScoreCaps: Record<number, number>; // { 1: 21, 2: 11, 3: 11, 4: 11, ... }
+  roundCustomCaps?: Record<number, number>; // Stores last custom cap value per round
 
   r1TargetGamesPerPlayer: number;
   r2TargetGamesPerPlayer: number;

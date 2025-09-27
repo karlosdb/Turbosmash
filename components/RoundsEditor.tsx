@@ -100,6 +100,17 @@ export default function RoundsEditor() {
     updateSchedulePrefs({ roundWaveOrders: next });
   };
 
+  // Custom cap storage helpers
+  const getRoundCustomCap = (roundIndex: number): number | undefined => {
+    return schedulePrefs.roundCustomCaps?.[roundIndex];
+  };
+
+  const setRoundCustomCap = (roundIndex: number, cap: number) => {
+    const nextCustomCaps = { ...(schedulePrefs.roundCustomCaps || {}) };
+    nextCustomCaps[roundIndex] = cap;
+    updateSchedulePrefs({ roundCustomCaps: nextCustomCaps });
+  };
+
   const getRoundMultiplier = (roundIndex: number): number => {
     if (roundIndex === 1) return 1.0;
     if (roundIndex === 2) return 1.2;
@@ -141,8 +152,8 @@ export default function RoundsEditor() {
   // Consolidated cap editing effects
   useEffect(() => {
     if (editingCapForRound === null) return;
-    const currentCap = getRoundScoreCap(editingCapForRound);
-    setCapDraft(String(currentCap));
+    const customCap = getRoundCustomCap(editingCapForRound);
+    setCapDraft(customCap ? String(customCap) : "");
     const raf = window.requestAnimationFrame(() => {
       capInputRef.current?.focus();
       capInputRef.current?.select();
@@ -153,8 +164,6 @@ export default function RoundsEditor() {
   // Consolidated cap editing functions
   const startCapEdit = (roundIndex: number) => {
     if (isRoundCapLocked(roundIndex)) return;
-    const currentCap = getRoundScoreCap(roundIndex);
-    setCapDraft(String(currentCap));
     setEditingCapForRound(roundIndex);
   };
 
@@ -176,6 +185,10 @@ export default function RoundsEditor() {
     const currentCap = getRoundScoreCap(editingCapForRound);
     if (parsed !== currentCap) {
       setRoundScoreCap(editingCapForRound, parsed);
+      // Save custom values (not in preset options) to separate storage
+      if (!capOptions.includes(parsed)) {
+        setRoundCustomCap(editingCapForRound, parsed);
+      }
     }
     setEditingCapForRound(null);
   };
@@ -406,6 +419,7 @@ export default function RoundsEditor() {
               multiplier={multiplier}
               scoreCap={scoreCap}
               capOptions={capOptions}
+              customCap={getRoundCustomCap(roundIndex)}
               isCapLocked={isCapLocked}
               isEditing={isEditing}
               capDraft={capDraft}
@@ -561,6 +575,7 @@ export default function RoundsEditor() {
               multiplier={multiplier}
               scoreCap={scoreCap}
               capOptions={capOptions}
+              customCap={getRoundCustomCap(roundIndex)}
               isCapLocked={isCapLocked}
               isEditing={isEditing}
               capDraft={capDraft}
@@ -688,6 +703,7 @@ export default function RoundsEditor() {
               multiplier={multiplier}
               scoreCap={scoreCap}
               capOptions={capOptions}
+              customCap={getRoundCustomCap(roundIndex)}
               isCapLocked={isCapLocked}
               isEditing={isEditing}
               capDraft={capDraft}
