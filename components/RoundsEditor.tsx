@@ -426,6 +426,25 @@ export default function RoundsEditor() {
               onAdvanceWave={advanceCurrentWave}
               onCloseRound={closeCurrentRound}
             />
+            <TestModeWrapper feature="randomizeButtons">
+              {!isRoundComplete && currentWave > 0 && currentWaveMatches.some((m) => m.status !== "completed") && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const target = scoreCap;
+                    currentWaveMatches
+                      .filter((m) => m.status !== "completed")
+                      .forEach((m) => {
+                        const [a, b] = randomScoreForTarget(target);
+                        submitScore(m.id, a, b);
+                      });
+                  }}
+                  className="w-full mb-4"
+                >
+                  Randomize current wave
+                </Button>
+              )}
+            </TestModeWrapper>
           </>
         )}
 
@@ -454,26 +473,6 @@ export default function RoundsEditor() {
           <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
             <div className="text-xs text-slate-500">
               Completed matches: {completedMatches}/{totalMatchesPlanned} - Avg games per player: {averageGames.toFixed(1)} / {targetGamesDisplay}
-            </div>
-            <div className="flex items-center gap-2">
-              <TestModeWrapper feature="randomizeButtons">
-                {!isRoundComplete && currentWave > 0 && currentWaveMatches.some((m) => m.status !== "completed") && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      const target = scoreCap;
-                      currentWaveMatches
-                        .filter((m) => m.status !== "completed")
-                        .forEach((m) => {
-                          const [a, b] = randomScoreForTarget(target);
-                          submitScore(m.id, a, b);
-                        });
-                    }}
-                  >
-                    Randomize current wave
-                  </Button>
-                )}
-              </TestModeWrapper>
             </div>
           </div>
         )}
@@ -582,6 +581,25 @@ export default function RoundsEditor() {
               onAdvanceWave={advanceCurrentWave}
               onCloseRound={closeCurrentRound}
             />
+            <TestModeWrapper feature="randomizeButtons">
+              {!isRoundComplete && currentWave > 0 && currentWaveMatches.some((m) => m.status !== "completed") && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const target = scoreCap;
+                    currentWaveMatches
+                      .filter((m) => m.status !== "completed")
+                      .forEach((m) => {
+                        const [a, b] = randomScoreForTarget(target);
+                        submitScore(m.id, a, b);
+                      });
+                  }}
+                  className="w-full mb-4"
+                >
+                  Randomize current wave
+                </Button>
+              )}
+            </TestModeWrapper>
           </>
         )}
 
@@ -612,26 +630,6 @@ export default function RoundsEditor() {
           <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
             <div className="text-xs text-slate-500">
               Completed matches: {completedMatches}/{totalMatchesPlanned} - Avg games per player: {averageGames.toFixed(1)}
-            </div>
-            <div className="flex items-center gap-2">
-              <TestModeWrapper feature="randomizeButtons">
-                {!isRoundComplete && currentWave > 0 && currentWaveMatches.some((m) => m.status !== "completed") && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      const target = scoreCap;
-                      currentWaveMatches
-                        .filter((m) => m.status !== "completed")
-                        .forEach((m) => {
-                          const [a, b] = randomScoreForTarget(target);
-                          submitScore(m.id, a, b);
-                        });
-                    }}
-                  >
-                    Randomize current wave
-                  </Button>
-                )}
-              </TestModeWrapper>
             </div>
           </div>
         )}
@@ -710,6 +708,25 @@ export default function RoundsEditor() {
               onAdvanceWave={advanceCurrentWave}
               onCloseRound={closeCurrentRound}
             />
+            <TestModeWrapper feature="randomizeButtons">
+              {!isRoundComplete && allMatches.some((m) => m.status !== "completed") && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const target = scoreCap;
+                    allMatches
+                      .filter((m) => m.status !== "completed")
+                      .forEach((m) => {
+                        const [a, b] = randomScoreForTarget(target);
+                        submitScore(m.id, a, b);
+                      });
+                  }}
+                  className="w-full mb-4"
+                >
+                  Randomize all matches
+                </Button>
+              )}
+            </TestModeWrapper>
           </>
         )}
 
@@ -727,26 +744,6 @@ export default function RoundsEditor() {
           <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
             <div className="text-xs text-slate-500">
               Completed matches: {completedMatches}/{totalMatchesPlanned}
-            </div>
-            <div className="flex items-center gap-2">
-              <TestModeWrapper feature="randomizeButtons">
-                {!isRoundComplete && allMatches.some((m) => m.status !== "completed") && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      const target = scoreCap;
-                      allMatches
-                        .filter((m) => m.status !== "completed")
-                        .forEach((m) => {
-                          const [a, b] = randomScoreForTarget(target);
-                          submitScore(m.id, a, b);
-                        });
-                    }}
-                  >
-                    Randomize all matches
-                  </Button>
-                )}
-              </TestModeWrapper>
             </div>
           </div>
         )}
