@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { EventState, Match, Player, Round, RoundKind, RoundPlanEntry, SchedulePrefs } from "./types";
 import { createEmptyEvent } from "./types";
-import { loadState, saveState, exportJSON as doExportJSON, importJSON as doImportJSON, initialState } from "./state";
+import { loadState, saveState, clearState, exportJSON as doExportJSON, importJSON as doImportJSON, initialState } from "./state";
 import { doublesEloDeltaDetailed } from "./rating";
 import { computeRoundPlan, prepareRound1, preparePrelimRound, generatePrelimWave, generateLaterRound, prelimWaveSequenceFromPrefs } from "./matchmaking";
 import { cutToTarget, rankPlayers } from "./elimination";
@@ -540,7 +540,6 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
       const baseline = createEmptyEvent();
       const nextPlayers = s.players.map((p) => ({
         ...p,
-        rating: 1000,
         gamesPlayed: 0,
         pointsFor: 0,
         pointsAgainst: 0,
@@ -549,7 +548,6 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         lastPartnerId: undefined,
         recentOpponents: undefined,
         lastPlayedAt: undefined,
-        seedPrior: undefined,
       }));
       return {
         ...s,
@@ -557,12 +555,18 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         rounds: [],
         currentRound: 1,
         r1Signature: undefined,
+        initialRatingsById: undefined,
+        roundPlan: [],
         createdAt: baseline.createdAt,
       };
     });
   }, []);
 
-  const resetAll = useCallback(() => setState(createEmptyEvent()), []);
+  const resetAll = useCallback(() => {
+    // Clear any persisted snapshot before rebuilding a fresh event state.
+    clearState();
+    setState(() => createEmptyEvent());
+  }, []);
 
   const exportRatingsJSON = useCallback(() => {
     const entries = players.map((p) => [p.name, p.rating] as const);
@@ -595,8 +599,7 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   }, [players, initialRatingsById]);
 
   const demo12 = useCallback(() => {
-    setState((s) => {
-      if (s.players.length > 0) return s;
+    setState(() => {
       const names = [
         "Alex","Blake","Casey","Drew","Evan","Flynn","Gray","Hayden","Indy","Jules","Kai","Logan",
       ];
@@ -612,7 +615,11 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
         pointsAgainst: 0,
         lastPlayedAt: Date.now(),
       }));
-      return { ...s, players };
+      const baseline = createEmptyEvent();
+      return {
+        ...baseline,
+        players,
+      };
     });
   }, []);
 

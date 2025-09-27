@@ -40,15 +40,17 @@ export default function PlayersTable() {
     [sortedPlayers]
   );
 
+  const MIN_PLAYERS = 8;
+
   const isValidCohortSize = (count: number) => {
-    return count >= 12 && count % 4 === 0;
+    return count >= MIN_PLAYERS && count % 4 === 0;
   };
 
   const canStart = isValidCohortSize(players.length) && (rounds.length === 0 || r1Signature !== currentSignature);
 
   const getPlayerCountMessage = () => {
-    if (players.length < 12) {
-      return `Need at least 12 players (currently ${players.length})`;
+    if (players.length < MIN_PLAYERS) {
+      return `Need at least ${MIN_PLAYERS} players (currently ${players.length})`;
     }
     if (players.length % 4 !== 0) {
       const nextValid = Math.ceil(players.length / 4) * 4;
@@ -138,19 +140,19 @@ export default function PlayersTable() {
             {!canStart && (
               <div className="relative group">
                 <div className={`flex items-center justify-center w-9 h-9 rounded-full cursor-help ${
-                  players.length < 12
+                  players.length < MIN_PLAYERS
                     ? 'bg-red-100 text-red-600'
                     : 'bg-amber-100 text-amber-600'
                 }`}>
                   <Info className="h-4 w-4" />
                 </div>
                 <div className={`absolute right-0 top-6 w-64 px-3 py-2 rounded-lg border shadow-lg transform scale-0 group-hover:scale-100 transition-transform duration-200 origin-top-right z-10 ${
-                  players.length < 12
+                  players.length < MIN_PLAYERS
                     ? 'bg-red-50 border-red-200 text-red-700'
                     : 'bg-amber-50 border-amber-200 text-amber-700'
                 }`}>
                   <div className="flex items-center gap-2">
-                    {players.length < 12 ? (
+                    {players.length < MIN_PLAYERS ? (
                       <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />
                     ) : (
                       <Clock className="h-4 w-4 text-amber-500 flex-shrink-0" />
@@ -158,7 +160,7 @@ export default function PlayersTable() {
                     <span className="text-sm font-medium">{getPlayerCountMessage()}</span>
                   </div>
                   <div className={`absolute -top-1 right-2 w-2 h-2 rotate-45 ${
-                    players.length < 12 ? 'bg-red-50 border-l border-t border-red-200' : 'bg-amber-50 border-l border-t border-amber-200'
+                    players.length < MIN_PLAYERS ? 'bg-red-50 border-l border-t border-red-200' : 'bg-amber-50 border-l border-t border-amber-200'
                   }`}></div>
                 </div>
               </div>

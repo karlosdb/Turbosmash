@@ -316,7 +316,7 @@ export default function PostTournamentScreen() {
                           </div>
                         )}
                         {player.eliminatedAtRound && (
-                          <Badge variant="secondary" className="text-xs">
+                          <Badge className="text-xs">
                             Eliminated R{player.eliminatedAtRound}
                           </Badge>
                         )}

@@ -30,6 +30,13 @@ export function saveState(state: EventState) {
   } catch {}
 }
 
+export function clearState() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {}
+}
+
 export function exportJSON(state: EventState): string {
   return JSON.stringify(state, null, 2);
 }

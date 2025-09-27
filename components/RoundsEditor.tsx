@@ -278,9 +278,9 @@ export default function RoundsEditor() {
     const isEditing = editingCapForRound === roundIndex;
 
     // Wave and match logic for this round - prioritize user's current selection
-    const plannedWavesForOrder = selectedOrder === "explore-showdown-explore-showdown" ? 4 : 3;
-    const targetGamesPlanned = selectedOrder === "explore-showdown-explore-showdown" ? 4 : 3;
-    const totalWaves = plannedWavesForOrder;
+    const waveSequence = prelimWaveSequenceFromPrefs(schedulePrefs, roundIndex);
+    const totalWaves = waveSequence.length;
+    const expectedGamesPerPlayer = waveSequence.length;
     const currentWave = round?.currentWave ?? 0;
 
     const matchesByWave = new Map<number, Match[]>();
@@ -303,10 +303,16 @@ export default function RoundsEditor() {
     const hasNextWave = currentWave > 0 && totalWaves > currentWave;
     const canAdvanceWave = currentWave === 0 || (hasNextWave && waveCompleted && round?.status === "active");
 
-    const totalMatchesPlanned = round?.waveSizes?.reduce((acc, value) => acc + value, 0) ?? round?.matches.length ?? 0;
+    const totalMatchesPlanned = round?.matches.length ?? 0;
     const completedMatches = round?.matches.filter((m) => m.status === "completed").length ?? 0;
-    const averageGames = players.length > 0 ? completedMatches / (players.length / 4) : 0;
-    const canCloseRound = totalMatchesPlanned > 0 && completedMatches === totalMatchesPlanned && round?.status !== "closed";
+    const averageGames = players.length > 0 ? (completedMatches * 4) / players.length : 0;
+    const targetGamesPlanned =
+      players.length > 0 && totalMatchesPlanned > 0
+        ? (totalMatchesPlanned * 4) / players.length
+        : expectedGamesPerPlayer;
+    const targetGamesDisplay = Number.isFinite(targetGamesPlanned) ? targetGamesPlanned.toFixed(1) : expectedGamesPerPlayer.toFixed(1);
+    const allMatchesCompleted = totalMatchesPlanned > 0 && completedMatches === totalMatchesPlanned;
+    const canCloseRound = allMatchesCompleted && round?.status !== "closed" && currentWave >= totalWaves;
     const isRoundComplete = round?.status === "closed";
 
     const handleWaveOrderChange = (order: R1WaveOrder) => {
@@ -446,7 +452,7 @@ export default function RoundsEditor() {
         {round && (
           <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
             <div className="text-xs text-slate-500">
-              Completed matches: {completedMatches}/{totalMatchesPlanned} - Avg games per player: {averageGames.toFixed(1)} / {targetGamesPlanned}
+              Completed matches: {completedMatches}/{totalMatchesPlanned} - Avg games per player: {averageGames.toFixed(1)} / {targetGamesDisplay}
             </div>
             <div className="flex items-center gap-2">
               {!isRoundComplete && currentWave > 0 && currentWaveMatches.some((m) => m.status !== "completed") && (
@@ -482,8 +488,7 @@ export default function RoundsEditor() {
     const isCapLocked = isRoundCapLocked(roundIndex);
     const isEditing = editingCapForRound === roundIndex;
 
-    // Semifinals have fixed 2-wave sequence: explore, showdown
-    const totalWaves = 2;
+    const totalWaves = round?.totalWaves ?? round?.waveSizes?.length ?? 2;
     const currentWave = round?.currentWave ?? 0;
 
     const matchesByWave = new Map<number, Match[]>();
@@ -506,15 +511,24 @@ export default function RoundsEditor() {
     const hasNextWave = currentWave > 0 && totalWaves > currentWave;
     const canAdvanceWave = currentWave === 0 || (hasNextWave && waveCompleted && round?.status === "active");
 
-    const totalMatchesPlanned = round?.waveSizes?.reduce((acc, value) => acc + value, 0) ?? round?.matches.length ?? 0;
+    const totalMatchesPlanned = round?.matches.length ?? 0;
     const completedMatches = round?.matches.filter((m) => m.status === "completed").length ?? 0;
-    const averageGames = players.length > 0 ? completedMatches / (players.length / 4) : 0;
-    const canCloseRound = totalMatchesPlanned > 0 && completedMatches === totalMatchesPlanned && round?.status !== "closed" && currentWave === totalWaves;
+    const averageGames = players.length > 0 ? (completedMatches * 4) / players.length : 0;
+    const allMatchesCompleted = totalMatchesPlanned > 0 && completedMatches === totalMatchesPlanned;
+    const canCloseRound = allMatchesCompleted && round?.status !== "closed" && currentWave >= totalWaves;
     const isRoundComplete = round?.status === "closed";
 
+    const waveProgramLabel = totalWaves === 2 ? `Explore ${ARROW} Showdown` : `${totalWaves} wave program`;
     const historyOpen = historyOpenForRound[roundIndex] ?? false;
     const setHistoryOpen = (open: boolean) => {
-      setHistoryOpenForRound(prev => ({ ...prev, [roundIndex]: open }));
+      setHistoryOpenForRound((prev) => ({ ...prev, [roundIndex]: open }));
+    };
+
+    const waveTypeFor = (waveIndex: number) => {
+      if (totalWaves === 2) {
+        return waveIndex === 1 ? "explore" : waveIndex === 2 ? "showdown" : undefined;
+      }
+      return undefined;
     };
 
     return (
@@ -524,10 +538,14 @@ export default function RoundsEditor() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-wide text-slate-600">Semifinals</div>
-              <div className="text-sm font-semibold text-slate-900">2 waves: Explore → Showdown</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {totalWaves} {totalWaves === 1 ? "wave" : "waves"}: {waveProgramLabel}
+              </div>
             </div>
             <div className="text-xs text-slate-500">
-              Wave 1 explores new pairings, Wave 2 showdown for finals spots
+              {totalWaves === 2
+                ? "Wave 1 explores new pairings, Wave 2 showdown for finals spots"
+                : "Wave assignments follow the configured semifinal program."}
             </div>
           </div>
         </div>
@@ -568,9 +586,9 @@ export default function RoundsEditor() {
         <WaveSection
           waveIndex={activeWaveIndex}
           matches={activeWaveMatches}
-          waveType={activeWaveIndex === 1 ? "explore" : "showdown"}
+          waveType={waveTypeFor(activeWaveIndex)}
           readonly={isRoundComplete}
-          showTypeDescription={true}
+          showTypeDescription={totalWaves === 2}
         />
 
         {/* Match History */}
@@ -578,12 +596,12 @@ export default function RoundsEditor() {
           historyWaves={historyWaveIndices.map((idx) => ({
             waveIndex: idx,
             matches: matchesByWave.get(idx) ?? [],
-            waveType: idx === 1 ? "explore" : "showdown"
+            waveType: waveTypeFor(idx)
           }))}
           isOpen={historyOpen}
           onToggle={setHistoryOpen}
           readonly={true}
-          showTypeDescriptions={true}
+          showTypeDescriptions={totalWaves === 2}
         />
 
         {/* Round Stats and Actions */}
@@ -633,8 +651,13 @@ export default function RoundsEditor() {
 
     const totalMatchesPlanned = allMatches.length;
     const completedMatches = allMatches.filter((m) => m.status === "completed").length;
-    const canCloseRound = totalMatchesPlanned > 0 && completedMatches === totalMatchesPlanned && round?.status !== "closed";
+    const matchesGenerated = totalMatchesPlanned > 0;
+    const matchSummary = matchesGenerated
+      ? (totalMatchesPlanned === 1 ? "1 match" : `${totalMatchesPlanned} matches`)
+      : "No matches yet";
+    const canCloseRound = matchesGenerated && completedMatches === totalMatchesPlanned && round?.status !== "closed";
     const isRoundComplete = round?.status === "closed";
+    const canAdvanceWave = !matchesGenerated && !isRoundComplete && round?.status === "active";
 
     return (
       <div className="space-y-4">
@@ -643,7 +666,9 @@ export default function RoundsEditor() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs uppercase tracking-wide text-slate-600">Finals</div>
-              <div className="text-sm font-semibold text-slate-900">3 matches: All team combinations</div>
+              <div className="text-sm font-semibold text-slate-900">
+                {matchSummary}: All team combinations
+              </div>
             </div>
             <div className="text-xs text-slate-500">
               Best 4 players compete in all possible team pairings
@@ -663,7 +688,7 @@ export default function RoundsEditor() {
               isCapLocked={isCapLocked}
               isEditing={isEditing}
               capDraft={capDraft}
-              currentWave={0} // Finals don't use waves
+              currentWave={currentWave}
               totalWaves={totalWaves}
               onCapChipClick={(cap) => handleCapChipClick(roundIndex, cap)}
               onStartCapEdit={() => startCapEdit(roundIndex)}
@@ -672,9 +697,9 @@ export default function RoundsEditor() {
               onCancelCapEdit={cancelCapEdit}
             />
             <ActionButtons
-              canAdvanceWave={false} // No wave advancement in finals
+              canAdvanceWave={canAdvanceWave}
               canCloseRound={canCloseRound}
-              currentWave={0}
+              currentWave={currentWave}
               colorScheme={colorScheme}
               roundType="final"
               onAdvanceWave={advanceCurrentWave}
@@ -682,6 +707,7 @@ export default function RoundsEditor() {
             />
           </>
         )}
+
 
         {/* Finals Matches */}
         <WaveSection
@@ -772,7 +798,6 @@ export default function RoundsEditor() {
     </div>
   );
 }
-
 
 
 
