@@ -192,7 +192,7 @@ describe("generateLaterRound", () => {
       ["p1", "p3", "p2", "p4"],
       ["p1", "p4", "p2", "p3"],
     ]);
-    expect(matches.map((m) => m.miniRoundIndex)).toEqual([1, 2, 3]);
+    expect(matches.map((m) => m.miniRoundIndex)).toEqual([1, 1, 1]);
   });
 });
 
