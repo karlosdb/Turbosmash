@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useEvent } from "@/lib/context";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getRoundScoreCap, shouldShowWaveLabel } from "@/lib/round-preferences";
 
 const compromiseLabels: Record<string, string> = {
   "repeat-partner": "Repeat partner",
@@ -39,18 +40,8 @@ export default function MatchCard({ matchId, readonly = false }: { matchId: stri
   const b1 = match ? byId[match.b1] : undefined;
   const b2 = match ? byId[match.b2] : undefined;
 
-  const getRoundScoreCap = (roundIndex: number): number => {
-    if (schedulePrefs.roundScoreCaps?.[roundIndex]) {
-      return schedulePrefs.roundScoreCaps[roundIndex];
-    }
-    if (roundIndex === 1) return schedulePrefs.r1ScoreCap ?? 21;
-    if (roundIndex === 2) return schedulePrefs.r2ScoreCap ?? 11;
-    if (roundIndex === 3) return schedulePrefs.r3ScoreCap ?? 11;
-    return 11;
-  };
-
-  const roundTarget = match ? getRoundScoreCap(match.roundIndex) : 11;
-  const waveLabel = match && match.roundIndex === 1 && match.miniRoundIndex ? `Wave ${match.miniRoundIndex}` : null;
+  const roundTarget = match ? getRoundScoreCap(match.roundIndex, schedulePrefs) : 11;
+  const waveLabel = match && shouldShowWaveLabel(match.roundIndex) && match.miniRoundIndex ? `Wave ${match.miniRoundIndex}` : null;
   const compromiseLabel = match?.compromise ? compromiseLabels[match.compromise] ?? "" : "";
   const compromiseClass = match?.compromise ? compromiseStyles[match.compromise] ?? "" : "";
 

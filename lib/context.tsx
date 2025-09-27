@@ -173,26 +173,27 @@ const defaultTestModeConfig: TestModeConfig = {
 
 export function EventProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<EventState>(() => initialState());
-  const [testMode, setTestMode] = useState<TestModeConfig>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('turbosmash-test-mode');
-      if (stored) {
-        try {
-          // For returning users, preserve their test mode state (including enabled status)
-          return { ...defaultTestModeConfig, ...JSON.parse(stored) };
-        } catch {
-          return defaultTestModeConfig;
-        }
-      }
-    }
-    // For new users with no localStorage, default to OFF
-    return defaultTestModeConfig;
-  });
+  const [testMode, setTestMode] = useState<TestModeConfig>(defaultTestModeConfig);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // load from localStorage on mount (client only)
   useEffect(() => {
     const loaded = loadState();
     if (loaded) setState(loaded);
+
+    // Load test mode from localStorage after hydration
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('turbosmash-test-mode');
+      if (stored) {
+        try {
+          // For returning users, preserve their test mode state (including enabled status)
+          setTestMode({ ...defaultTestModeConfig, ...JSON.parse(stored) });
+        } catch {
+          setTestMode(defaultTestModeConfig);
+        }
+      }
+    }
+    setIsHydrated(true);
   }, []);
 
   // persist on changes
@@ -200,12 +201,12 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     saveState(state);
   }, [state]);
 
-  // save test mode to localStorage whenever it changes
+  // save test mode to localStorage whenever it changes (only after hydration)
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (isHydrated && typeof window !== 'undefined') {
       localStorage.setItem('turbosmash-test-mode', JSON.stringify(testMode));
     }
-  }, [testMode]);
+  }, [testMode, isHydrated]);
 
   const players = state.players;
   const rounds = state.rounds;

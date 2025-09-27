@@ -5,6 +5,16 @@ import { useEffect, useRef, useState } from "react";
 import { useEvent } from "@/lib/context";
 import { computeRoundPlan, prelimWaveSequenceFromPrefs } from "@/lib/matchmaking";
 import type { Match, R1WaveOrder, Round, RoundPlanEntry } from "@/lib/types";
+import {
+  getRoundScoreCap,
+  getRoundMultiplier,
+  getRoundWaveOrder,
+  getRoundCustomCap,
+  setRoundCustomCap as setCustomCap,
+  setRoundScoreCap as setScoreCap,
+  setRoundWaveOrder as setWaveOrder,
+  shouldShowSpecialRoundUI,
+} from "@/lib/round-preferences";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Button from "@/components/ui/button";
 import MatchCard from "@/components/MatchCard";
@@ -64,59 +74,20 @@ export default function RoundsEditor() {
   const ARROW = "\u2192";
 
   // Dynamic round preference helpers
-  const getRoundScoreCap = (roundIndex: number): number => {
-    // Check new dynamic system first
-    if (schedulePrefs.roundScoreCaps?.[roundIndex]) {
-      return schedulePrefs.roundScoreCaps[roundIndex];
-    }
-    // Fall back to legacy system
-    if (roundIndex === 1) return schedulePrefs.r1ScoreCap ?? 21;
-    if (roundIndex === 2) return schedulePrefs.r2ScoreCap ?? 11;
-    if (roundIndex === 3) return schedulePrefs.r3ScoreCap ?? 11;
-    // Default for additional preliminary rounds
-    return 11;
-  };
-
   const setRoundScoreCap = (roundIndex: number, cap: number) => {
-    const nextCaps = { ...(schedulePrefs.roundScoreCaps || {}) };
-    nextCaps[roundIndex] = cap;
-    updateSchedulePrefs({ roundScoreCaps: nextCaps });
-  };
-
-  const getRoundWaveOrder = (roundIndex: number): R1WaveOrder => {
-    if (schedulePrefs.roundWaveOrders?.[roundIndex]) {
-      return schedulePrefs.roundWaveOrders[roundIndex];
-    }
-    if (roundIndex === 1) {
-      return schedulePrefs.r1WaveOrder;
-    }
-    const previousRoundOrder = schedulePrefs.roundWaveOrders?.[roundIndex - 1] || schedulePrefs.r1WaveOrder;
-    return previousRoundOrder;
+    const patch = setScoreCap(roundIndex, cap, schedulePrefs);
+    updateSchedulePrefs(patch);
   };
 
   const setRoundWaveOrder = (roundIndex: number, order: R1WaveOrder) => {
-    const next = { ...(schedulePrefs.roundWaveOrders || {}) };
-    next[roundIndex] = order;
-    updateSchedulePrefs({ roundWaveOrders: next });
+    const patch = setWaveOrder(roundIndex, order, schedulePrefs);
+    updateSchedulePrefs(patch);
   };
 
   // Custom cap storage helpers
-  const getRoundCustomCap = (roundIndex: number): number | undefined => {
-    return schedulePrefs.roundCustomCaps?.[roundIndex];
-  };
-
   const setRoundCustomCap = (roundIndex: number, cap: number) => {
-    const nextCustomCaps = { ...(schedulePrefs.roundCustomCaps || {}) };
-    nextCustomCaps[roundIndex] = cap;
-    updateSchedulePrefs({ roundCustomCaps: nextCustomCaps });
-  };
-
-  const getRoundMultiplier = (roundIndex: number): number => {
-    if (roundIndex === 1) return 1.0;
-    if (roundIndex === 2) return 1.2;
-    if (roundIndex === 3) return 1.4;
-    // For additional rounds, continue increasing
-    return 1.0 + (roundIndex - 1) * 0.2;
+    const patch = setCustomCap(roundIndex, cap, schedulePrefs);
+    updateSchedulePrefs(patch);
   };
 
   const getRoundColorScheme = (roundIndex: number) => {
@@ -152,7 +123,7 @@ export default function RoundsEditor() {
   // Consolidated cap editing effects
   useEffect(() => {
     if (editingCapForRound === null) return;
-    const customCap = getRoundCustomCap(editingCapForRound);
+    const customCap = getRoundCustomCap(editingCapForRound, schedulePrefs);
     setCapDraft(customCap ? String(customCap) : "");
     const raf = window.requestAnimationFrame(() => {
       capInputRef.current?.focus();
@@ -182,7 +153,7 @@ export default function RoundsEditor() {
       cancelCapEdit();
       return;
     }
-    const currentCap = getRoundScoreCap(editingCapForRound);
+    const currentCap = getRoundScoreCap(editingCapForRound, schedulePrefs);
     if (parsed !== currentCap) {
       setRoundScoreCap(editingCapForRound, parsed);
       // Save custom values (not in preset options) to separate storage
@@ -195,7 +166,7 @@ export default function RoundsEditor() {
 
   const handleCapChipClick = (roundIndex: number, cap: number) => {
     if (isRoundCapLocked(roundIndex)) return;
-    const currentCap = getRoundScoreCap(roundIndex);
+    const currentCap = getRoundScoreCap(roundIndex, schedulePrefs);
     if (cap === currentCap) {
       startCapEdit(roundIndex);
       return;
@@ -283,11 +254,11 @@ export default function RoundsEditor() {
     const roundPlan = effectivePlan.find(p => p.index === roundIndex);
     if (!roundPlan || roundPlan.kind !== "prelim") return null;
 
-    const scoreCap = getRoundScoreCap(roundIndex);
+    const scoreCap = getRoundScoreCap(roundIndex, schedulePrefs);
     const colorScheme = getRoundColorScheme(roundIndex);
-    const multiplier = getRoundMultiplier(roundIndex);
+    const multiplier = getRoundMultiplier(roundIndex, schedulePrefs);
     const waveOrderLocked = isRoundWaveOrderLocked(roundIndex);
-    const selectedOrder = getRoundWaveOrder(roundIndex);
+    const selectedOrder = getRoundWaveOrder(roundIndex, schedulePrefs);
     const isCapLocked = isRoundCapLocked(roundIndex);
     const isEditing = editingCapForRound === roundIndex;
 
@@ -384,7 +355,7 @@ export default function RoundsEditor() {
         </div>
 
         {/* Round 1 specific cards */}
-        {roundIndex === 1 && players.length > 14 && !globalPlanLocked && (
+        {shouldShowSpecialRoundUI(roundIndex, players.length) && !globalPlanLocked && (
           <>
             <div className="mb-4 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -419,7 +390,7 @@ export default function RoundsEditor() {
               multiplier={multiplier}
               scoreCap={scoreCap}
               capOptions={capOptions}
-              customCap={getRoundCustomCap(roundIndex)}
+              customCap={getRoundCustomCap(roundIndex, schedulePrefs)}
               isCapLocked={isCapLocked}
               isEditing={isEditing}
               capDraft={capDraft}
@@ -498,9 +469,9 @@ export default function RoundsEditor() {
     const roundPlan = effectivePlan.find(p => p.index === roundIndex);
     if (!roundPlan || roundPlan.kind !== "eight") return null;
 
-    const scoreCap = getRoundScoreCap(roundIndex);
+    const scoreCap = getRoundScoreCap(roundIndex, schedulePrefs);
     const colorScheme = getRoundColorScheme(roundIndex);
-    const multiplier = getRoundMultiplier(roundIndex);
+    const multiplier = getRoundMultiplier(roundIndex, schedulePrefs);
     const isCapLocked = isRoundCapLocked(roundIndex);
     const isEditing = editingCapForRound === roundIndex;
 
@@ -575,7 +546,7 @@ export default function RoundsEditor() {
               multiplier={multiplier}
               scoreCap={scoreCap}
               capOptions={capOptions}
-              customCap={getRoundCustomCap(roundIndex)}
+              customCap={getRoundCustomCap(roundIndex, schedulePrefs)}
               isCapLocked={isCapLocked}
               isEditing={isEditing}
               capDraft={capDraft}
@@ -656,9 +627,9 @@ export default function RoundsEditor() {
     const roundPlan = effectivePlan.find(p => p.index === roundIndex);
     if (!roundPlan || roundPlan.kind !== "final") return null;
 
-    const scoreCap = getRoundScoreCap(roundIndex);
+    const scoreCap = getRoundScoreCap(roundIndex, schedulePrefs);
     const colorScheme = getRoundColorScheme(roundIndex);
-    const multiplier = getRoundMultiplier(roundIndex);
+    const multiplier = getRoundMultiplier(roundIndex, schedulePrefs);
     const isCapLocked = isRoundCapLocked(roundIndex);
     const isEditing = editingCapForRound === roundIndex;
 
@@ -703,7 +674,7 @@ export default function RoundsEditor() {
               multiplier={multiplier}
               scoreCap={scoreCap}
               capOptions={capOptions}
-              customCap={getRoundCustomCap(roundIndex)}
+              customCap={getRoundCustomCap(roundIndex, schedulePrefs)}
               isCapLocked={isCapLocked}
               isEditing={isEditing}
               capDraft={capDraft}
@@ -818,8 +789,3 @@ export default function RoundsEditor() {
     </div>
   );
 }
-
-
-
-
-

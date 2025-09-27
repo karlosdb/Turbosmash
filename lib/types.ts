@@ -59,19 +59,21 @@ export type Round = {
 export type R1WaveOrder = "explore-showdown-explore-showdown" | "explore-explore-showdown";
 
 export type SchedulePrefs = {
-  // Legacy fields (will be migrated)
+  // Legacy fields keep persisted data compatible
   r1ScoreCap?: number;
   r2ScoreCap?: number;
   r3ScoreCap?: number;
-
-  // New dynamic system
-  roundScoreCaps: Record<number, number>; // { 1: 21, 2: 11, 3: 11, 4: 11, ... }
-  roundCustomCaps?: Record<number, number>; // Stores last custom cap value per round
-
   r1TargetGamesPerPlayer: number;
   r2TargetGamesPerPlayer: number;
   r1WaveOrder: R1WaveOrder;
-  roundWaveOrders?: Record<number, R1WaveOrder>; // Per-round wave order configuration
+
+  // Generic dynamic system
+  roundScoreCaps?: Record<number, number>;
+  roundCustomCaps?: Record<number, number>;
+  roundTargetGames?: Record<number, number>;
+  roundMultipliers?: Record<number, number>;
+  roundWaveOrders?: Record<number, R1WaveOrder>;
+
   threeRoundCap?: boolean;
 };
 
@@ -81,15 +83,25 @@ export type EventState = {
   currentRound: number;
   createdAt: string;
   schedulePrefs: SchedulePrefs;
+
+  // Legacy fields (backward compatibility)
   r1Signature?: string;
+  r1Groups?: string[][]; // Deterministic R1 group assignments (by player id)
+
+  // Generic round tracking
+  roundSignatures?: Record<number, string>;
+  roundGroups?: Record<number, string[][]>;
+
   // Capture starting ratings to compute post-event Elo deltas
   initialRatingsById?: Record<string, number>;
-  // Deterministic R1 group assignments (by player id)
-  r1Groups?: string[][];
   roundPlan?: RoundPlanEntry[];
 };
 
 export type Id = string;
+
+const DEFAULT_R1_WAVE_ORDER: R1WaveOrder = "explore-showdown-explore-showdown";
+const DEFAULT_ROUND_TARGET_GAMES: Record<number, number> = { 1: 3, 2: 2 };
+const DEFAULT_ROUND_MULTIPLIERS: Record<number, number> = { 1: 1.0, 2: 1.2, 3: 1.4 };
 
 export function defaultSchedulePrefs(): SchedulePrefs {
   return {
@@ -98,7 +110,11 @@ export function defaultSchedulePrefs(): SchedulePrefs {
     r3ScoreCap: 11,
     r1TargetGamesPerPlayer: 3,
     r2TargetGamesPerPlayer: 2,
-    r1WaveOrder: "explore-showdown-explore-showdown",
+    r1WaveOrder: DEFAULT_R1_WAVE_ORDER,
+    roundScoreCaps: {},
+    roundTargetGames: { ...DEFAULT_ROUND_TARGET_GAMES },
+    roundMultipliers: { ...DEFAULT_ROUND_MULTIPLIERS },
+    roundWaveOrders: { 1: DEFAULT_R1_WAVE_ORDER },
     threeRoundCap: false,
   };
 }

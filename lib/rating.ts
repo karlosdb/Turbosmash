@@ -1,4 +1,6 @@
-﻿export function effTeam(R1: number, R2: number, s = 0.03) {
+import type { SchedulePrefs } from "./types";
+
+export function effTeam(R1: number, R2: number, s = 0.03) {
   return (R1 + R2) / 2 - s * Math.abs(R1 - R2);
 }
 
@@ -15,10 +17,39 @@ export function capRef(roundIndex: 1 | 2 | 3) {
   return roundIndex === 1 ? 21 : 15;
 }
 
+const DEFAULT_RATING_CAP = 15;
+const RATING_BASELINES: Record<number, number> = {
+  1: 21,
+};
+
+// Generic function that respects dynamic caps but preserves legacy rating defaults
+export function capRefGeneric(roundIndex: number, prefs: SchedulePrefs) {
+  const dynamicCap = prefs.roundScoreCaps?.[roundIndex];
+  if (dynamicCap !== undefined) {
+    return dynamicCap;
+  }
+
+  if (RATING_BASELINES[roundIndex] !== undefined) {
+    return RATING_BASELINES[roundIndex];
+  }
+
+  return DEFAULT_RATING_CAP;
+}
+
 export function adjustExpectationForRace(E: number, roundIndex: 1 | 2 | 3) {
   if (roundIndex === 1) return E;
   const baseline = capRef(1);
   const current = capRef(roundIndex);
+  if (baseline <= 0 || current <= 0) return E;
+  const blend = Math.max(0, Math.min(1, current / baseline));
+  return 0.5 + (E - 0.5) * blend;
+}
+
+// Generic function matching legacy behaviour while supporting overrides
+export function adjustExpectationForRaceGeneric(E: number, roundIndex: number, prefs: SchedulePrefs) {
+  if (roundIndex === 1) return E;
+  const baseline = capRefGeneric(1, prefs);
+  const current = capRefGeneric(roundIndex, prefs);
   if (baseline <= 0 || current <= 0) return E;
   const blend = Math.max(0, Math.min(1, current / baseline));
   return 0.5 + (E - 0.5) * blend;
@@ -37,6 +68,32 @@ export function kBaseScaled(
   S: number
 ) {
   const I = (pA + pB) / capRef(roundIndex);
+  const u0 = 0.6;
+  const U = 1.0 + u0 / Math.sqrt(Math.max(1, GPavg));
+  const D = 1 + Math.max(-0.25, Math.min(0.25, (RB - RA) / 400));
+  const repeatDamp = (samePartner ? 0.9 : 1.0) * (repeatedOpp ? 0.95 : 1.0);
+  const surprise = 0.5 + Math.abs(S - E);
+
+  const K_base = 24;
+  const K = K_base * I * U * D * repeatDamp * surprise;
+  return Math.max(8, Math.min(40, K));
+}
+
+// Generic function matching legacy behaviour while supporting overrides
+export function kBaseScaledGeneric(
+  pA: number,
+  pB: number,
+  roundIndex: number,
+  GPavg: number,
+  RA: number,
+  RB: number,
+  samePartner: boolean,
+  repeatedOpp: boolean,
+  E: number,
+  S: number,
+  prefs: SchedulePrefs
+) {
+  const I = (pA + pB) / capRefGeneric(roundIndex, prefs);
   const u0 = 0.6;
   const U = 1.0 + u0 / Math.sqrt(Math.max(1, GPavg));
   const D = 1 + Math.max(-0.25, Math.min(0.25, (RB - RA) / 400));
